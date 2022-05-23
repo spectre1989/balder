@@ -5,17 +5,85 @@
 
 
 typedef uint8_t uint8;
+typedef uint16_t uint16;
+typedef uint32_t uint32;
+typedef uint64_t uint64;
+typedef int8_t int8;
+typedef int16_t int16;
+typedef int32_t int32;
+typedef int64_t int64;
+typedef float float32;
+typedef double float64;
+
+union Vec2f
+{
+	struct
+	{
+		float32 x, y;
+	};
+	float32 v[2];
+};
 
 
-static constexpr int c_frame_width = 640;
-static constexpr int c_frame_height = 480;
+static constexpr int32 c_frame_width = 640;
+static constexpr int32 c_frame_height = 480;
 static uint8 frame[c_frame_width * c_frame_height * 3];
 
 
-static constexpr int pixel(int x, int y)
+static constexpr float32 float32_abs(float32 f)
+{
+	return f >= 0.0f ? f : -f;
+}
+
+static constexpr int32 pixel(int32 x, int32 y)
 {
 	return ((y * c_frame_width) + x) * 3;
 }
+
+static void draw_line_ndc(Vec2f p1, Vec2f p2)
+{
+	// make sure we're iterating x in a positive direction
+	if (p1.x > p2.x)
+	{
+		Vec2f temp = p1;
+		p1 = p2;
+		p2 = temp;
+	}
+	const Vec2f s1 = { p1.x * c_frame_width, p1.y * c_frame_height };
+	const Vec2f s2 = { p2.x * c_frame_width, p2.y * c_frame_height };
+
+	const int32 x1 = s1.x;
+	const int32 x2 = s2.x;
+	const int32 y1 = s1.y;
+	const int32 y2 = s2.y;
+
+	const float32 line_width = s2.x - s1.x;
+	const float32 line_height = s2.y - s1.y;
+	const float32 delta_y_per_delta_x = line_width != 0.0f ? 
+		float32_abs(line_height / line_width) : 0.0f; // TODO test what happens with width of 0
+	float32 y_accumulator = 0.0f;
+	const int32 y_step = line_height >= 0 ? 1 : -1;
+	for (int x = x1, y = y1; x <= x2; ++x)
+	{
+		const int32 pixel_start = pixel(x, y);
+		frame[pixel_start] = 0xff;
+		frame[pixel_start + 1] = 0xff;
+		frame[pixel_start + 2] = 0xff;
+
+		y_accumulator += delta_y_per_delta_x;
+		while (y_accumulator >= 1.0f)
+		{
+			--y_accumulator;
+			y+= y_step;
+
+			const int32 pixel_start = pixel(x, y);
+			frame[pixel_start] = 0xff;
+			frame[pixel_start + 1] = 0xff;
+			frame[pixel_start + 2] = 0xff;
+		}
+	}
+}
+
 LRESULT wnd_proc(
 	HWND window,
 	UINT msg,
@@ -116,6 +184,14 @@ int WinMain(
 			bitmap_info.bmiHeader.biCompression = BI_RGB;
 
 			memset(frame, 0, sizeof(frame));
+
+			const Vec2f v1 = { 0.2f, 0.2f };
+			const Vec2f v2 = { 0.5f, 0.8f };
+			const Vec2f v3 = { 0.8f, 0.2f };
+
+			draw_line_ndc(v1, v2);
+			draw_line_ndc(v2, v3);
+			draw_line_ndc(v3, v1);
 
 			SetDIBitsToDevice(
 				dc,
