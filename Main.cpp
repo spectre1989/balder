@@ -40,7 +40,7 @@ static constexpr int32 pixel(int32 x, int32 y)
 	return ((y * c_frame_width) + x) * 3;
 }
 
-static void draw_line_ndc(Vec2f p1, Vec2f p2)
+static void draw_line(Vec2f p1, Vec2f p2)
 {
 	// make sure we're iterating x in a positive direction
 	if (p1.x > p2.x)
@@ -49,16 +49,14 @@ static void draw_line_ndc(Vec2f p1, Vec2f p2)
 		p1 = p2;
 		p2 = temp;
 	}
-	const Vec2f s1 = { p1.x * c_frame_width, p1.y * c_frame_height };
-	const Vec2f s2 = { p2.x * c_frame_width, p2.y * c_frame_height };
 
-	const int32 x1 = s1.x;
-	const int32 x2 = s2.x;
-	const int32 y1 = s1.y;
-	const int32 y2 = s2.y;
+	const int32 x1 = p1.x;
+	const int32 x2 = p2.x;
+	const int32 y1 = p1.y;
+	const int32 y2 = p2.y;
 
-	const float32 line_width = s2.x - s1.x;
-	const float32 line_height = s2.y - s1.y;
+	const float32 line_width = p2.x - p1.x;
+	const float32 line_height = p2.y - p1.y;
 	const float32 delta_y_per_delta_x = line_width != 0.0f ? 
 		float32_abs(line_height / line_width) : 0.0f; // TODO test what happens with width of 0
 	float32 y_accumulator = 0.0f;
@@ -185,13 +183,19 @@ int WinMain(
 
 			memset(frame, 0, sizeof(frame));
 
+			// ndc coordinates
 			const Vec2f v1 = { 0.2f, 0.2f };
 			const Vec2f v2 = { 0.5f, 0.8f };
 			const Vec2f v3 = { 0.8f, 0.2f };
 
-			draw_line_ndc(v1, v2);
-			draw_line_ndc(v2, v3);
-			draw_line_ndc(v3, v1);
+			// screen coordinates
+			const Vec2f p1 = { v1.x * c_frame_width, v1.y * c_frame_height };
+			const Vec2f p2 = { v2.x * c_frame_width, v2.y * c_frame_height };
+			const Vec2f p3 = { v3.x * c_frame_width, v3.y * c_frame_height };
+
+			draw_line(p1, p2);
+			draw_line(p2, p3);
+			draw_line(p3, p1);
 
 			SetDIBitsToDevice(
 				dc,
