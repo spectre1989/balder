@@ -54,30 +54,38 @@ static void draw_line(Vec2f p1, Vec2f p2)
 	const int32 x2 = p2.x;
 	const int32 y1 = p1.y;
 	const int32 y2 = p2.y;
+	
+	const int32 delta_x = x2 - x1;
+	const int32 delta_y = y2 - y1;
+	const int32 delta_x_2 = float32_abs(delta_x + delta_x);
+	const int32 delta_y_2 = float32_abs(delta_y + delta_y);
 
-	const float32 line_width = p2.x - p1.x;
-	const float32 line_height = p2.y - p1.y;
-	const float32 delta_y_per_delta_x = line_width != 0.0f ? 
-		float32_abs(line_height / line_width) : 0.0f; // TODO test what happens with width of 0
-	float32 y_accumulator = 0.0f;
-	const int32 y_step = line_height >= 0 ? 1 : -1;
-	for (int x = x1, y = y1; x <= x2; ++x)
+	int32 error = delta_y_2 - delta_x;
+	int32 x = x1;
+	int32 y = y1;
+	const int32 y_step = delta_y >= 0 ? 1 : -1;
+	for (; x <= x2; ++x) 
 	{
-		const int32 pixel_start = pixel(x, y);
-		frame[pixel_start] = 0xff;
-		frame[pixel_start + 1] = 0xff;
-		frame[pixel_start + 2] = 0xff;
-
-		y_accumulator += delta_y_per_delta_x;
-		while (y_accumulator >= 1.0f)
+		int32 y_end = y;
+		while (error >= 0)
 		{
-			--y_accumulator;
-			y+= y_step;
+			y_end += y_step;
+			error -= delta_x_2;
+		}
+		error += delta_y_2;
 
-			const int32 pixel_start = pixel(x, y);
-			frame[pixel_start] = 0xff;
-			frame[pixel_start + 1] = 0xff;
-			frame[pixel_start + 2] = 0xff;
+		while (true)
+		{
+			frame[pixel(x, y)] = 0xff;
+			frame[pixel(x, y) + 1] = 0xff;
+			frame[pixel(x, y) + 2] = 0xff;
+
+			if (y == y_end)
+			{
+				break;
+			}
+
+			y += y_step;
 		}
 	}
 }
