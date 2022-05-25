@@ -40,7 +40,7 @@ static constexpr int32 pixel(int32 x, int32 y)
 	return ((y * c_frame_width) + x) * 3;
 }
 
-static void draw_line(Vec2f p1, Vec2f p2)
+static void draw_line(Vec2f p1, Vec2f p2) // TODO more efficient algo impl
 {
 	// make sure we're iterating x in a positive direction
 	if (p1.x > p2.x)
@@ -73,6 +73,64 @@ static void draw_line(Vec2f p1, Vec2f p2)
 			error -= delta_x_2;
 		}
 		error += delta_y_2;
+		
+		// we should increase y if y has increased this time, otherwise a
+		// perfectly diagonal line will look like stairs rather than an actual
+		// line.
+		if (y_end != y)
+		{
+			y += y_step;
+		}
+
+		while (true)
+		{
+			frame[pixel(x, y)] = 0xff;
+			frame[pixel(x, y) + 1] = 0xff;
+			frame[pixel(x, y) + 2] = 0xff;
+
+			if (y == y_end)
+			{
+				break;
+			}
+
+			y += y_step;
+		}
+	}
+}
+
+static void triangle(Vec2f p1, Vec2f p2, Vec2f p3)
+{
+	const int32 x1 = p1.x;
+	const int32 x2 = p2.x;
+	const int32 y1 = p1.y;
+	const int32 y2 = p2.y;
+
+	const int32 delta_x = x2 - x1;
+	const int32 delta_y = y2 - y1;
+	const int32 delta_x_2 = float32_abs(delta_x + delta_x);
+	const int32 delta_y_2 = float32_abs(delta_y + delta_y);
+
+	int32 error = 0;
+	int32 x = x1;
+	int32 y = y1;
+	const int32 y_step = delta_y >= 0 ? 1 : -1;
+	for (; x <= x2; ++x)
+	{
+		int32 y_end = y;
+		while (error > 0)
+		{
+			y_end += y_step;
+			error -= delta_x_2;
+		}
+		error += delta_y_2;
+
+		// we should increase y if y has increased this time, otherwise a
+		// perfectly diagonal line will look like stairs rather than an actual
+		// line.
+		if (y_end != y)
+		{
+			y += y_step;
+		}
 
 		while (true)
 		{
