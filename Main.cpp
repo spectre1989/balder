@@ -60,14 +60,14 @@ static void draw_line(Vec2f p1, Vec2f p2)
 	const int32 delta_x_2 = float32_abs(delta_x + delta_x);
 	const int32 delta_y_2 = float32_abs(delta_y + delta_y);
 
-	int32 error = delta_y_2 - delta_x;
+	int32 error = 0;
 	int32 x = x1;
 	int32 y = y1;
 	const int32 y_step = delta_y >= 0 ? 1 : -1;
 	for (; x <= x2; ++x) 
 	{
 		int32 y_end = y;
-		while (error >= 0)
+		while (error > 0)
 		{
 			y_end += y_step;
 			error -= delta_x_2;
