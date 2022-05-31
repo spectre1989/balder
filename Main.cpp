@@ -129,11 +129,8 @@ static void draw_line(Vec2f p1, Vec2f p2) // TODO more efficient algo impl
 	}
 }
 
-#include <cstdio>
 static void triangle_edge(Vec2f left, Vec2f right, Vec3f left_colour, Vec3f right_colour, int32* out_x_values, Vec3f* out_colours)
 {
-	char buffer[256];
-
 	const int32 x1 = left.x;
 	const int32 x2 = right.x;
 	const int32 y1 = left.y;
@@ -169,7 +166,7 @@ static void triangle_edge(Vec2f left, Vec2f right, Vec3f left_colour, Vec3f righ
 		while (true)
 		{
 			out_x_values[y] = x;
-			out_colours[y] = y1 != y2 ? vec3f_lerp(left_colour, right_colour, (y - y1)/(float)(y2-y1)) : left_colour;
+			out_colours[y] = y1 != y2 ? vec3f_lerp(left_colour, right_colour, (y - y1) / (float)(y2 - y1)) : left_colour;
 
 			if (y == y_end)
 			{
@@ -242,15 +239,16 @@ static void draw_triangle(Vec2f p1, Vec2f p2, Vec2f p3, const Vec3f colours[3])
 	// or max values
 	if ((right.y - left.y) > 0.0f)
 	{
-		triangle_edge(left, right,colours[0], colours[3], max, max_col);
+		triangle_edge(left, right,colours[0], colours[2], max, max_col);
 	}
 	else
 	{
-		triangle_edge(left, right, colours[0], colours[3], min, min_col);
+		triangle_edge(left, right, colours[0], colours[2], min, min_col);
 	}
 
 	int32 y_min = float32_min(float32_min(p1.y, p2.y), p3.y);
 	int32 y_max = float32_max(float32_max(p1.y, p2.y), p3.y);
+	
 	for (int32 y = y_min; y <= y_max; ++y)
 	{
 		for (int32 x = min[y]; x <= max[y]; ++x)
@@ -374,6 +372,9 @@ int WinMain(
 			const Vec2f p1 = { v1.x * c_frame_width, v1.y * c_frame_height };
 			const Vec2f p2 = { v2.x * c_frame_width, v2.y * c_frame_height };
 			const Vec2f p3 = { v3.x * c_frame_width, v3.y * c_frame_height };
+			/*constexpr Vec2f p1 = {10, 10};
+			constexpr Vec2f p2 = {20, 20};
+			constexpr Vec2f p3 = {30, 5};*/
 
 			constexpr Vec3f red = {0.0f, 0.0f, 1.0f};
 			constexpr Vec3f blue = { 1.0f, 0.0f, 0.0f };
