@@ -59,6 +59,21 @@ static constexpr float32 float32_lerp(float32 a, float32 b, float32 t)
 	return a + ((b - a) * t);
 }
 
+static constexpr int32 int32_abs(int32 a)
+{
+	return a >= 0 ? a : -a;
+}
+
+static constexpr int32 int32_min(int32 a, int32 b)
+{
+	return a < b ? a : b;
+}
+
+static constexpr int32 int32_max(int32 a, int32 b)
+{
+	return a > b ? a : b;
+}
+
 static constexpr Vec3f vec3f_lerp(Vec3f a, Vec3f b, float32 t)
 {
 	return { float32_lerp(a.x, b.x, t),
@@ -81,15 +96,15 @@ static void draw_line(Vec2f p1, Vec2f p2) // TODO more efficient algo impl
 		p2 = temp;
 	}
 
-	const int32 x1 = p1.x;
-	const int32 x2 = p2.x;
-	const int32 y1 = p1.y;
-	const int32 y2 = p2.y;
+	const int32 x1 = int32(p1.x);
+	const int32 x2 = int32(p2.x);
+	const int32 y1 = int32(p1.y);
+	const int32 y2 = int32(p2.y);
 	
 	const int32 delta_x = x2 - x1;
 	const int32 delta_y = y2 - y1;
-	const int32 delta_x_2 = float32_abs(delta_x + delta_x);
-	const int32 delta_y_2 = float32_abs(delta_y + delta_y);
+	const int32 delta_x_2 = int32_abs(delta_x + delta_x);
+	const int32 delta_y_2 = int32_abs(delta_y + delta_y);
 
 	int32 error = 0;
 	int32 x = x1;
@@ -131,15 +146,15 @@ static void draw_line(Vec2f p1, Vec2f p2) // TODO more efficient algo impl
 
 static void triangle_edge(Vec2f left, Vec2f right, Vec3f left_colour, Vec3f right_colour, int32* out_x_values, Vec3f* out_colours)
 {
-	const int32 x1 = left.x;
-	const int32 x2 = right.x;
-	const int32 y1 = left.y;
-	const int32 y2 = right.y;
+	const int32 x1 = int32(left.x);
+	const int32 x2 = int32(right.x);
+	const int32 y1 = int32(left.y);
+	const int32 y2 = int32(right.y);
 
 	const int32 delta_x = x2 - x1;
 	const int32 delta_y = y2 - y1;
-	const int32 delta_x_2 = float32_abs(delta_x + delta_x);
-	const int32 delta_y_2 = float32_abs(delta_y + delta_y);
+	const int32 delta_x_2 = int32_abs(delta_x + delta_x);
+	const int32 delta_y_2 = int32_abs(delta_y + delta_y);
 
 	int32 error = 0;
 	int32 x = x1;
@@ -178,52 +193,52 @@ static void triangle_edge(Vec2f left, Vec2f right, Vec3f left_colour, Vec3f righ
 	}
 }
 
-static void draw_triangle(Vec2f p1, Vec2f p2, Vec2f p3, const Vec3f colours[3])
+static void draw_triangle(const Vec2f position[3], const Vec3f colours[3])
 {
-	Vec2f left, mid, right;
-	if (p1.x < p2.x)
+	int32 left, mid, right;
+	if (position[0].x < position[1].x)
 	{
-		if (p1.x < p3.x)
+		if (position[0].x < position[2].x)
 		{
-			left = p1;
-			if (p2.x < p3.x)
+			left = 0;
+			if (position[1].x < position[2].x)
 			{
-				mid = p2;
-				right = p3;
+				mid = 1;
+				right = 2;
 			}
 			else
 			{
-				mid = p3;
-				right = p2;
+				mid = 2;
+				right = 1;
 			}
 		}
 		else
 		{
-			left = p3;
-			mid = p1;
-			right = p2;
+			left = 2;
+			mid = 0;
+			right = 1;
 		}
 	}
 	else
 	{
-		if (p3.x < p2.x)
+		if (position[2].x < position[1].x)
 		{
-			left = p3;
-			mid = p2;
-			right = p1;
+			left = 2;
+			mid = 1;
+			right = 0;
 		}
 		else
 		{
-			left = p2;
-			if (p1.x < p3.x)
+			left = 1;
+			if (position[0].x < position[2].x)
 			{
-				mid = p1;
-				right = p3;
+				mid = 0;
+				right = 2;
 			}
 			else
 			{
-				mid = p3;
-				right = p1;
+				mid = 2;
+				right = 0;
 			}
 		}
 	}
@@ -233,21 +248,21 @@ static void draw_triangle(Vec2f p1, Vec2f p2, Vec2f p3, const Vec3f colours[3])
 	int32 max[c_frame_height];
 	Vec3f max_col[c_frame_height];
 
-	triangle_edge(left, mid, colours[0], colours[1], min, min_col);
-	triangle_edge(mid, right,colours[1], colours[2], max, max_col);
+	triangle_edge(position[left], position[mid], colours[left], colours[mid], min, min_col);
+	triangle_edge(position[mid], position[right],colours[mid], colours[right], max, max_col);
 	// slope of the left to right line dictates whether it's contributing min
 	// or max values
-	if ((right.y - left.y) > 0.0f)
+	if ((position[right].y - position[left].y) > 0.0f)
 	{
-		triangle_edge(left, right,colours[0], colours[2], max, max_col);
+		triangle_edge(position[left], position[right],colours[left], colours[right], max, max_col);
 	}
 	else
 	{
-		triangle_edge(left, right, colours[0], colours[2], min, min_col);
+		triangle_edge(position[left], position[right], colours[left], colours[right], min, min_col);
 	}
 
-	int32 y_min = float32_min(float32_min(p1.y, p2.y), p3.y);
-	int32 y_max = float32_max(float32_max(p1.y, p2.y), p3.y);
+	int32 y_min = int32_min(int32_min(int32(position[0].y), int32(position[1].y)), int32(position[2].y));
+	int32 y_max = int32_max(int32_max(int32(position[0].y), int32(position[1].y)), int32(position[2].y));
 	
 	for (int32 y = y_min; y <= y_max; ++y)
 	{
@@ -255,9 +270,9 @@ static void draw_triangle(Vec2f p1, Vec2f p2, Vec2f p3, const Vec3f colours[3])
 		{
 			Vec3f colour = min[y] != max[y] ? vec3f_lerp(min_col[y], max_col[y], (x - min[y]) / (float32)(max[y] - min[y])) : min_col[y];
 			const int32 offset = pixel(x, y);
-			frame[offset] = 0xff * colour.x;
-			frame[offset + 1] = 0xff * colour.y;
-			frame[offset + 2] = 0xff * colour.z;
+			frame[offset] = uint8(0xff * colour.x);
+			frame[offset + 1] = uint8(0xff * colour.y);
+			frame[offset + 2] = uint8(0xff * colour.z);
 		}
 	}
 }
@@ -364,27 +379,28 @@ int WinMain(
 			memset(frame, 0, sizeof(frame));
 
 			// ndc coordinates
-			const Vec2f v1 = { 0.2f, 0.2f };
-			const Vec2f v2 = { 0.5f, 0.8f };
-			const Vec2f v3 = { 0.8f, 0.1f };
+			constexpr Vec2f v1 = { 0.1f, 0.1f };
+			constexpr Vec2f v2 = { 0.5f, 0.9f };
+			constexpr Vec2f v3 = { 0.9f, 0.1f };
 
 			// screen coordinates
-			const Vec2f p1 = { v1.x * c_frame_width, v1.y * c_frame_height };
-			const Vec2f p2 = { v2.x * c_frame_width, v2.y * c_frame_height };
-			const Vec2f p3 = { v3.x * c_frame_width, v3.y * c_frame_height };
+			constexpr Vec2f p1 = { v1.x * c_frame_width, v1.y * c_frame_height };
+			constexpr Vec2f p2 = { v2.x * c_frame_width, v2.y * c_frame_height };
+			constexpr Vec2f p3 = { v3.x * c_frame_width, v3.y * c_frame_height };
 			/*constexpr Vec2f p1 = {10, 10};
 			constexpr Vec2f p2 = {20, 20};
 			constexpr Vec2f p3 = {30, 5};*/
+			constexpr Vec2f positions[3] = { p1, p2, p3 };
 
-			constexpr Vec3f red = {0.0f, 0.0f, 1.0f};
+			constexpr Vec3f red = { 0.0f, 0.0f, 1.0f };
 			constexpr Vec3f blue = { 1.0f, 0.0f, 0.0f };
 			constexpr Vec3f green = { 0.0f, 1.0f, 0.0f };
-			constexpr Vec3f colours[3] = {red, blue, green};
-			draw_triangle(p1, p2, p3, colours);
+			constexpr Vec3f colours[3] = { red, blue, green };
+			draw_triangle(positions, colours);
 
-			draw_line(p1, p2);
+			/*draw_line(p1, p2);
 			draw_line(p2, p3);
-			draw_line(p3, p1);
+			draw_line(p3, p1);*/
 
 			SetDIBitsToDevice(
 				dc,
@@ -404,5 +420,5 @@ int WinMain(
 		// TODO sleep unused cycles
 	}
 
-	return msg.wParam;
+	return int(msg.wParam);
 }
