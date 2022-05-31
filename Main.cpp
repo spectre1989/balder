@@ -113,7 +113,7 @@ static void draw_line(Vec2f p1, Vec2f p2) // TODO more efficient algo impl
 	for (; x <= x2; ++x) 
 	{
 		int32 y_end = y;
-		while (error > 0)
+		while (error >= delta_x)
 		{
 			y_end += y_step;
 			error -= delta_x_2;
@@ -163,7 +163,7 @@ static void triangle_edge(Vec2f left, Vec2f right, Vec3f left_colour, Vec3f righ
 	for (; x <= x2; ++x)
 	{
 		int32 y_end = y;
-		while (error > 0)
+		while (error >= delta_x)
 		{
 			y_end += y_step;
 			error -= delta_x_2;
