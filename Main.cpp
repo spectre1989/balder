@@ -195,6 +195,19 @@ static void triangle_edge(Vec2f left, Vec2f right, Vec3f left_colour, Vec3f righ
 
 static void draw_triangle(const Vec2f position[3], const Vec3f colours[3])
 {
+	// High level algorithm is to plot the 3 lines describing the edges, use
+	// this to figure out per row (y) what the min/max x value is, and 
+	// interpolating any attributes (e.g. normal, texcoord, etc) along the edge.
+	// Then go row by row, and min x to max x, filling in the pixels, and 
+	// interpolating attributes from min to max x.
+
+	// Not sure if this is a good way of doing it, but I wanted to avoid doing
+	// something like this along the edges:
+	// min_x[y] = min(min_x[y], x);
+	// max_x[y] = max(max_x[y], x);
+	// So instead if we sort the vertices by x, we know that the line left to 
+	// mid will all be min_x, mid to right will all be max_x, and left to right
+	// will be either, depending on the slope of the edge
 	int32 left, mid, right;
 	if (position[0].x < position[1].x)
 	{
@@ -377,6 +390,22 @@ int WinMain(
 			bitmap_info.bmiHeader.biCompression = BI_RGB;
 
 			memset(frame, 0, sizeof(frame));
+
+			// vertex/index buffers
+			constexpr Vec3f vertices[8] = { {-0.5f, -0.5f, -0.5f}, 
+											{0.5f, -0.5f, -0.5f}, 
+											{0.5f, 0.5f, -0.5f}, 
+											{-0.5f, 0.5f, -0.5f},
+											{-0.5f, -0.5f, 0.5f}, 
+											{0.5f, -0.5f, 0.5f}, 
+											{0.5f, 0.5f, 0.5f}, 
+											{-0.5f, 0.5f, 0.5f} };
+			constexpr int32 triangles[36] = { 1, 2, 3, 1, 3, 0, // bottom
+											4, 7, 6, 4, 6, 5, // top
+											0, 4, 5, 0, 5, 1, // front
+											2, 6, 7, 2, 7, 3, // back
+											3, 7, 4, 3, 4, 0, // left
+											1, 5, 6, 1, 6, 2 }; // right
 
 			// ndc coordinates
 			constexpr Vec2f v1 = { 0.1f, 0.1f };
