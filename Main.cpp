@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <cstdint>
+#include <cstdio>
 
 
 typedef uint8_t uint8;
@@ -348,9 +349,9 @@ int WinMain(
 	QueryPerformanceFrequency(&clock_freq);
 	LARGE_INTEGER last_frame_time;
 	QueryPerformanceCounter(&last_frame_time);
-	float frame_accumulator = 0.0f;
 	constexpr float c_framerate = 60.0f;
-	constexpr float c_frame_duration = 1.0f / c_framerate;
+	constexpr float c_frame_duration_s = 1.0f / c_framerate;
+	const LONGLONG c_frame_duration = clock_freq.QuadPart * c_frame_duration_s;
 	bool quit = false;
 	MSG msg;
 	int a = 0;
@@ -371,13 +372,14 @@ int WinMain(
 		LARGE_INTEGER now;
 		QueryPerformanceCounter(&now);
 		const LONGLONG dt = (now.QuadPart - last_frame_time.QuadPart);
-		const float dt_s = dt / (float)clock_freq.QuadPart;
-		frame_accumulator += dt_s;
-		last_frame_time = now;
 
-		while (frame_accumulator >= c_frame_duration)
+		if (dt >= c_frame_duration)
 		{
-			frame_accumulator -= c_frame_duration;
+			LARGE_INTEGER frame_start;
+			QueryPerformanceCounter(&frame_start);
+
+			// TODO what if dt >= (2*c_frame_duration)?
+			last_frame_time.QuadPart += c_frame_duration;
 
 			HDC dc = GetDC(window);
 
@@ -444,6 +446,14 @@ int WinMain(
 			);
 
 			ReleaseDC(window, dc);
+
+			LARGE_INTEGER frame_end;
+			QueryPerformanceCounter(&frame_end);
+
+			// TODO maybe make a debug printf func with a shared buffer?
+			char buffer[64];
+			snprintf(buffer, sizeof(buffer), "FPS: %lld\n", clock_freq.QuadPart / (frame_end.QuadPart - frame_start.QuadPart));
+			OutputDebugStringA(buffer);
 		}
 
 		// TODO sleep unused cycles
