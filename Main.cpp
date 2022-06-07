@@ -1,38 +1,8 @@
 #define VC_EXTRALEAN
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
-#include <cstdint>
 #include <cstdio>
-
-
-typedef uint8_t uint8;
-typedef uint16_t uint16;
-typedef uint32_t uint32;
-typedef uint64_t uint64;
-typedef int8_t int8;
-typedef int16_t int16;
-typedef int32_t int32;
-typedef int64_t int64;
-typedef float float32;
-typedef double float64;
-
-union Vec2f
-{
-	struct
-	{
-		float32 x, y;
-	};
-	float32 v[2];
-};
-
-union Vec3f
-{
-	struct
-	{
-		float32 x, y, z;
-	};
-	float32 v[3];
-};
+#include "maths.h"
 
 
 static constexpr int32 c_frame_width = 640;
@@ -40,59 +10,17 @@ static constexpr int32 c_frame_height = 480;
 static uint8 frame[c_frame_width * c_frame_height * 3];
 
 
-static constexpr float32 float32_abs(float32 f)
-{
-	return f >= 0.0f ? f : -f;
-}
-
-static constexpr float32 float32_min(float32 a, float32 b)
-{
-	return a < b ? a : b;
-}
-
-static constexpr float32 float32_max(float32 a, float32 b)
-{
-	return a > b ? a : b;
-}
-
-static constexpr float32 float32_lerp(float32 a, float32 b, float32 t)
-{
-	return a + ((b - a) * t);
-}
-
-static constexpr int32 int32_abs(int32 a)
-{
-	return a >= 0 ? a : -a;
-}
-
-static constexpr int32 int32_min(int32 a, int32 b)
-{
-	return a < b ? a : b;
-}
-
-static constexpr int32 int32_max(int32 a, int32 b)
-{
-	return a > b ? a : b;
-}
-
-static constexpr Vec3f vec3f_lerp(Vec3f a, Vec3f b, float32 t)
-{
-	return { float32_lerp(a.x, b.x, t),
-		float32_lerp(a.y, b.y, t),
-		float32_lerp(a.z, b.z, t) };
-}
-
 static constexpr int32 pixel(int32 x, int32 y)
 {
 	return ((y * c_frame_width) + x) * 3;
 }
 
-static void draw_line(Vec2f p1, Vec2f p2) // TODO more efficient algo impl
+static void draw_line(Vec_2f p1, Vec_2f p2) // TODO more efficient algo impl
 {
 	// make sure we're iterating x in a positive direction
 	if (p1.x > p2.x)
 	{
-		Vec2f temp = p1;
+		Vec_2f temp = p1;
 		p1 = p2;
 		p2 = temp;
 	}
@@ -145,7 +73,7 @@ static void draw_line(Vec2f p1, Vec2f p2) // TODO more efficient algo impl
 	}
 }
 
-static void triangle_edge(Vec2f left, Vec2f right, Vec3f left_colour, Vec3f right_colour, int32* out_x_values, Vec3f* out_colours)
+static void triangle_edge(Vec_2f left, Vec_2f right, Vec_3f left_colour, Vec_3f right_colour, int32* out_x_values, Vec_3f* out_colours)
 {
 	const int32 x1 = int32(left.x);
 	const int32 x2 = int32(right.x);
@@ -182,7 +110,7 @@ static void triangle_edge(Vec2f left, Vec2f right, Vec3f left_colour, Vec3f righ
 		while (true)
 		{
 			out_x_values[y] = x;
-			out_colours[y] = y1 != y2 ? vec3f_lerp(left_colour, right_colour, (y - y1) / (float)(y2 - y1)) : left_colour;
+			out_colours[y] = y1 != y2 ? vec_3f_lerp(left_colour, right_colour, (y - y1) / (float)(y2 - y1)) : left_colour;
 
 			if (y == y_end)
 			{
@@ -194,7 +122,7 @@ static void triangle_edge(Vec2f left, Vec2f right, Vec3f left_colour, Vec3f righ
 	}
 }
 
-static void draw_triangle(const Vec2f position[3], const Vec3f colours[3])
+static void draw_triangle(const Vec_2f position[3], const Vec_3f colours[3])
 {
 	// High level algorithm is to plot the 3 lines describing the edges, use
 	// this to figure out per row (y) what the min/max x value is, and 
@@ -258,9 +186,9 @@ static void draw_triangle(const Vec2f position[3], const Vec3f colours[3])
 	}
 
 	int32 min[c_frame_height];
-	Vec3f min_col[c_frame_height];
+	Vec_3f min_col[c_frame_height];
 	int32 max[c_frame_height];
-	Vec3f max_col[c_frame_height];
+	Vec_3f max_col[c_frame_height];
 
 	triangle_edge(position[left], position[mid], colours[left], colours[mid], min, min_col);
 	triangle_edge(position[mid], position[right],colours[mid], colours[right], max, max_col);
@@ -282,7 +210,7 @@ static void draw_triangle(const Vec2f position[3], const Vec3f colours[3])
 	{
 		for (int32 x = min[y]; x <= max[y]; ++x)
 		{
-			Vec3f colour = min[y] != max[y] ? vec3f_lerp(min_col[y], max_col[y], (x - min[y]) / (float32)(max[y] - min[y])) : min_col[y];
+			Vec_3f colour = min[y] != max[y] ? vec_3f_lerp(min_col[y], max_col[y], (x - min[y]) / (float32)(max[y] - min[y])) : min_col[y];
 			const int32 offset = pixel(x, y);
 			frame[offset] = uint8(0xff * colour.x);
 			frame[offset + 1] = uint8(0xff * colour.y);
@@ -351,7 +279,7 @@ int WinMain(
 	QueryPerformanceCounter(&last_frame_time);
 	constexpr float c_framerate = 60.0f;
 	constexpr float c_frame_duration_s = 1.0f / c_framerate;
-	const LONGLONG c_frame_duration = clock_freq.QuadPart * c_frame_duration_s;
+	const LONGLONG c_frame_duration = (LONGLONG)(clock_freq.QuadPart * c_frame_duration_s);
 	bool quit = false;
 	MSG msg;
 	int a = 0;
@@ -394,7 +322,7 @@ int WinMain(
 			memset(frame, 0, sizeof(frame));
 
 			// vertex/index buffers
-			constexpr Vec3f vertices[8] = { {-0.5f, -0.5f, -0.5f}, 
+			constexpr Vec_3f vertices[8] = { {-0.5f, -0.5f, -0.5f}, 
 											{0.5f, -0.5f, -0.5f}, 
 											{0.5f, 0.5f, -0.5f}, 
 											{-0.5f, 0.5f, -0.5f},
@@ -410,28 +338,30 @@ int WinMain(
 											1, 5, 6, 1, 6, 2 }; // right
 
 			// ndc coordinates
-			constexpr Vec2f v1 = { 0.1f, 0.1f };
-			constexpr Vec2f v2 = { 0.5f, 0.9f };
-			constexpr Vec2f v3 = { 0.9f, 0.1f };
+			constexpr Vec_2f v1 = { 0.1f, 0.1f };
+			constexpr Vec_2f v2 = { 0.5f, 0.9f };
+			constexpr Vec_2f v3 = { 0.9f, 0.1f };
 
 			// screen coordinates
-			constexpr Vec2f p1 = { v1.x * c_frame_width, v1.y * c_frame_height };
-			constexpr Vec2f p2 = { v2.x * c_frame_width, v2.y * c_frame_height };
-			constexpr Vec2f p3 = { v3.x * c_frame_width, v3.y * c_frame_height };
-			/*constexpr Vec2f p1 = {10, 10};
-			constexpr Vec2f p2 = {20, 20};
-			constexpr Vec2f p3 = {30, 5};*/
-			constexpr Vec2f positions[3] = { p1, p2, p3 };
+			constexpr Vec_2f p1 = { v1.x * c_frame_width, v1.y * c_frame_height };
+			constexpr Vec_2f p2 = { v2.x * c_frame_width, v2.y * c_frame_height };
+			constexpr Vec_2f p3 = { v3.x * c_frame_width, v3.y * c_frame_height };
+			/*constexpr Vec_2f p1 = {10, 10};
+			constexpr Vec_2f p2 = {20, 20};
+			constexpr Vec_2f p3 = {30, 5};*/
+			constexpr Vec_2f positions[3] = { p1, p2, p3 };
 
-			constexpr Vec3f red = { 0.0f, 0.0f, 1.0f };
-			constexpr Vec3f blue = { 1.0f, 0.0f, 0.0f };
-			constexpr Vec3f green = { 0.0f, 1.0f, 0.0f };
-			constexpr Vec3f colours[3] = { red, blue, green };
+			constexpr Vec_3f red = { 0.0f, 0.0f, 1.0f };
+			constexpr Vec_3f blue = { 1.0f, 0.0f, 0.0f };
+			constexpr Vec_3f green = { 0.0f, 1.0f, 0.0f };
+			constexpr Vec_3f colours[3] = { red, blue, green };
 			draw_triangle(positions, colours);
 
 			/*draw_line(p1, p2);
 			draw_line(p2, p3);
 			draw_line(p3, p1);*/
+
+			//draw(vertices, triangles);
 
 			SetDIBitsToDevice(
 				dc,
