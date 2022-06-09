@@ -370,13 +370,13 @@ int WinMain(
 			matrix_4x4_projection(&projection_matrix, c_fov_y, c_frame_width / (float32)c_frame_height, c_near, c_far);
 
 			Matrix_4x4 view_matrix;
-			matrix_4x4_camera(&view_matrix, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f });
+			matrix_4x4_camera(&view_matrix, { 0.0f, 0.0f, 0.0f }, { 0.0f, 2.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f });
 
 			Matrix_4x4 view_projection_matrix;
 			matrix_4x4_mul(&view_projection_matrix, &projection_matrix, &view_matrix);
 
 			Matrix_4x4 model_matrix;
-			matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.00000001f));
+			matrix_4x4_transform(&model_matrix, { 0.0f, 1.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.00000001f));
 
 			Matrix_4x4 model_view_projection_matrix;
 			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
