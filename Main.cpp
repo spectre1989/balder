@@ -362,6 +362,38 @@ int WinMain(
 			draw_line(p3, p1);*/
 
 			//draw(vertices, triangles);
+			constexpr float32 c_fov_y = 90.0f;
+			constexpr float32 c_near = 0.1f;
+			constexpr float32 c_far = 1000.0f;
+			Matrix_4x4 projection_matrix;
+			matrix_4x4_projection(&projection_matrix, c_fov_y, c_frame_width / (float32)c_frame_height, c_near, c_far);
+
+			Matrix_4x4 view_matrix;
+			matrix_4x4_camera(&view_matrix, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f });
+
+			Matrix_4x4 view_projection_matrix;
+			matrix_4x4_mul(&view_projection_matrix, &projection_matrix, &view_matrix);
+
+			Matrix_4x4 model_matrix;
+			matrix_4x4_transform(&model_matrix, { 0.0f, 5.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0001f));
+
+			Matrix_4x4 model_view_projection_matrix;
+			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
+
+			Vec_2f projected_vertices[8];
+			for (int i = 0; i < 8; ++i)
+			{
+				Vec_4f projected3d = matrix_4x4_mul_vec4(&model_view_projection_matrix, vertices[i]);
+				projected3d.x /= projected3d.w;
+				projected3d.y /= projected3d.w;
+				projected3d.x = (projected3d.x + 1) / 2;
+				projected3d.y = (projected3d.y + 1) / 2;
+				projected3d.x *= c_frame_width;
+				projected3d.y *= c_frame_height;
+				projected_vertices[i] = { projected3d.x, projected3d.y };
+			}
+
+			draw_triangle(projected_vertices, colours);
 
 			SetDIBitsToDevice(
 				dc,

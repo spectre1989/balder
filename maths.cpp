@@ -1,5 +1,21 @@
 #include "maths.h"
-#include <cmath>
+
+Quat quat_euler(Vec_3f euler)
+{
+	Quat pitch = quat_angle_axis({ 1.0f, 0.0f, 0.0f }, euler.x);
+	Quat yaw = quat_angle_axis({ 0.0f, 1.0f, 0.0f }, euler.y);
+	Quat roll = quat_angle_axis({ 0.0f, 0.0f, 1.0f }, euler.z);
+
+	// do roll, then pitch, then yaw
+	return quat_mul(yaw, quat_mul(pitch, roll));
+}
+
+Quat quat_angle_axis(Vec_3f axis, float32 angle)
+{
+	float32 half_theta = angle * 0.5f;
+	float32 sin_half_theta = sinf(half_theta);
+	return { axis.x * sin_half_theta, axis.y * sin_half_theta, axis.z * sin_half_theta, cosf(half_theta) };
+}
 
 void matrix_4x4_projection(
 	Matrix_4x4* matrix,
@@ -67,11 +83,26 @@ void matrix_4x4_mul(Matrix_4x4* result, Matrix_4x4* a, Matrix_4x4* b)
 	result->m44 = (a->m41 * b->m14) + (a->m42 * b->m24) + (a->m43 * b->m34) + (a->m44 * b->m44);
 }
 
+Vec_3f matrix_4x4_mul(Matrix_4x4* matrix, Vec_3f v)
+{
+	return { (v.x * matrix->m11) + (v.y * matrix->m12) + (v.z * matrix->m13) + matrix->m14,
+		(v.x * matrix->m21) + (v.y * matrix->m22) + (v.z * matrix->m23) + matrix->m24,
+		(v.x * matrix->m31) + (v.y * matrix->m32) + (v.z * matrix->m33) + matrix->m34};
+}
+
 Vec_3f matrix_4x4_mul_direction(Matrix_4x4* matrix, Vec_3f v)
 {
 	return { (v.x * matrix->m11) + (v.y * matrix->m12) + (v.z * matrix->m13),
 		(v.x * matrix->m21) + (v.y * matrix->m22) + (v.z * matrix->m23),
 		(v.x * matrix->m31) + (v.y * matrix->m32) + (v.z * matrix->m33) };
+}
+
+Vec_4f matrix_4x4_mul_vec4(Matrix_4x4* matrix, Vec_3f v)
+{
+	return { (v.x * matrix->m11) + (v.y * matrix->m12) + (v.z * matrix->m13) + matrix->m14,
+		(v.x * matrix->m21) + (v.y * matrix->m22) + (v.z * matrix->m23) + matrix->m24,
+		(v.x * matrix->m31) + (v.y * matrix->m32) + (v.z * matrix->m33) + matrix->m34,
+		(v.x * matrix->m41) + (v.y * matrix->m42) + (v.z * matrix->m43) + matrix->m44 };
 }
 
 void matrix_4x4_camera(Matrix_4x4* matrix, Vec_3f position, Vec_3f forward, Vec_3f up, Vec_3f right)

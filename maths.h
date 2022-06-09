@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core.h"
+#include <cmath>
 
 union Vec_2f
 {
@@ -16,6 +17,14 @@ union Vec_3f
 		float32 x, y, z;
 	};
 	float v[3];
+};
+
+union Vec_4f
+{
+	struct {
+		float32 x, y, z, w;
+	};
+	float v[4];
 };
 
 union Quat
@@ -125,10 +134,46 @@ constexpr Vec_3f vec_3f_normalised(Vec_3f v)
 	return v;
 }
 
+Quat quat_euler(Vec_3f euler);
+Quat quat_angle_axis(Vec_3f axis, float32 angle);
+
+constexpr Quat quat_identity()
+{
+	return { 0.0f, 0.0f, 0.0f, 1.0f };
+}
+
+constexpr Vec_3f quat_mul(Quat q, Vec_3f v)
+{
+	// TODO simplify
+
+	float32 x = (q.scalar * q.scalar * v.x) + (-2.0f * q.scalar * q.yx * v.y) + (2.0f * q.scalar * -q.xz * v.z) + (-q.zy * -q.zy * v.x) + (2.0f * -q.zy * -q.xz * v.y) + (2.0f * -q.zy * q.yx * v.z) + (-1.0f * -q.xz * -q.xz * v.x) + (-1.0f * q.yx * q.yx * v.x);
+	float32 y = (2.0f * q.scalar * q.yx * v.x) + (q.scalar * q.scalar * v.y) + (-2.0f * q.scalar * -q.zy * v.z) + (2.0f * -q.zy * -q.xz * v.x) + (-1.0f * -q.zy * -q.zy * v.y) + (-q.xz * -q.xz * v.y) + (2.0f * -q.xz * q.yx * v.z) + (-1.0f * q.yx * q.yx * v.y);
+	float32 z = (-2.0f * q.scalar * -q.xz * v.x) + (2.0f * q.scalar * -q.zy * v.y) + (q.scalar * q.scalar * v.z) + (2.0f * -q.zy * q.yx * v.x) + (-1.0f * -q.zy * -q.zy * v.z) + (2.0f * -q.xz * q.yx * v.y) + (-1.0f * -q.xz * -q.xz * v.z) + (q.yx * q.yx * v.z);
+
+	return { x, y, z };
+}
+
+constexpr Quat quat_mul(Quat a, Quat b)
+{
+	// TODO simplify
+
+	float32 zy = (b.zy * a.scalar) + (b.scalar * a.zy) + (b.yx * a.xz) + (-1.0f * a.yx * b.xz);
+	float32 xz = (b.xz * a.scalar) + (-1.0f * b.yx * a.zy) + (b.scalar * a.xz) + (a.yx * b.zy);
+	float32 yx = (b.yx * a.scalar) + (b.xz * a.zy) + (-1.0f * b.zy * a.xz) + (a.yx * b.scalar);
+	float32 scalar = (b.scalar * a.scalar) + (-1.0f * b.zy * a.zy) + (-1.0f * b.xz * a.xz) + (-1.0f * a.yx * b.yx);
+
+	return { zy, xz, yx, scalar };
+}
+
 void matrix_4x4_projection(Matrix_4x4* matrix, float32 fov_y, float32 aspect_ratio, float32 near_plane, float32 far_plane);
 void matrix_4x4_translation(Matrix_4x4* matrix, Vec_3f translation);
 void matrix_4x4_mul(Matrix_4x4* result, Matrix_4x4* a, Matrix_4x4* b);
+// matrix * {x, y, z, 1}
+Vec_3f matrix_4x4_mul(Matrix_4x4* matrix, Vec_3f v);
+// matrix * {x, y, z, 0}
 Vec_3f matrix_4x4_mul_direction(Matrix_4x4* matrix, Vec_3f v);
+// matrix * {x, y, z, 1}
+Vec_4f matrix_4x4_mul_vec4(Matrix_4x4* matrix, Vec_3f v);
 void matrix_4x4_camera(Matrix_4x4* matrix, Vec_3f position, Vec_3f forward, Vec_3f up, Vec_3f right);
 void matrix_4x4_lookat(Matrix_4x4* matrix, Vec_3f position, Vec_3f target, Vec_3f up);
 void matrix_4x4_rotation(Matrix_4x4* matrix, Quat rotation);
