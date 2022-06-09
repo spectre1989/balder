@@ -192,9 +192,10 @@ static void draw_triangle(const Vec_2f position[3], const Vec_3f colours[3])
 
 	triangle_edge(position[left], position[mid], colours[left], colours[mid], min, min_col);
 	triangle_edge(position[mid], position[right],colours[mid], colours[right], max, max_col);
-	// slope of the left to right line dictates whether it's contributing min
-	// or max values
-	if ((position[right].y - position[left].y) > 0.0f)
+	
+	float32 lr = (position[right].y - position[left].y) / (position[right].x - position[left].x);
+	float32 lm = (position[mid].y - position[left].y) / (position[mid].x - position[left].x);
+	if ((lr < 0 && lm < lr) || (lr >= 0 && lm > lr))
 	{
 		triangle_edge(position[left], position[right],colours[left], colours[right], max, max_col);
 	}
@@ -375,7 +376,7 @@ int WinMain(
 			matrix_4x4_mul(&view_projection_matrix, &projection_matrix, &view_matrix);
 
 			Matrix_4x4 model_matrix;
-			matrix_4x4_transform(&model_matrix, { 0.0f, 5.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0001f));
+			matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.00000001f));
 
 			Matrix_4x4 model_view_projection_matrix;
 			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
