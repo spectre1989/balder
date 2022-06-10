@@ -3,6 +3,10 @@
 #include "core.h"
 #include <cmath>
 
+constexpr float32 c_pi = 3.1415926535897932384626433f;
+constexpr float32 c_deg_to_rad = c_pi / 180.0f;
+
+
 union Vec_2f
 {
 	struct {

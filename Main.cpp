@@ -42,7 +42,7 @@ static void draw_line(Vec_2f p1, Vec_2f p2) // TODO more efficient algo impl
 	for (; x <= x2; ++x) 
 	{
 		int32 y_end = y;
-		while (error >= delta_x)
+		while (error >= delta_x && y_end != y2)
 		{
 			y_end += y_step;
 			error -= delta_x_2;
@@ -73,12 +73,16 @@ static void draw_line(Vec_2f p1, Vec_2f p2) // TODO more efficient algo impl
 	}
 }
 
-static void triangle_edge(Vec_2f left, Vec_2f right, Vec_3f left_colour, Vec_3f right_colour, int32* out_x_values, Vec_3f* out_colours)
+static void triangle_edge(
+	Vec_3f a, Vec_3f b, 
+	Vec_3f a_col, Vec_3f b_col, 
+	int32* out_min_x, int32* out_max_x, 
+	Vec_3f* out_min_colour, Vec_3f* out_max_colour)
 {
-	const int32 x1 = int32(left.x);
-	const int32 x2 = int32(right.x);
-	const int32 y1 = int32(left.y);
-	const int32 y2 = int32(right.y);
+	const int32 x1 = int32(a.x);
+	const int32 y2 = int32(b.y);
+	const int32 x2 = int32(b.x);
+	const int32 y1 = int32(a.y);
 
 	const int32 delta_x = x2 - x1;
 	const int32 delta_y = y2 - y1;
@@ -87,12 +91,15 @@ static void triangle_edge(Vec_2f left, Vec_2f right, Vec_3f left_colour, Vec_3f 
 
 	int32 error = 0;
 	int32 x = x1;
+	const int32 x_step = delta_x >= 0 ? 1 : -1;
 	int32 y = y1;
 	const int32 y_step = delta_y >= 0 ? 1 : -1;
-	for (; x <= x2; ++x)
+	// TODO think it would be faster to go row by row, because then we only
+	// do min/max with x1 and x2 not every point.
+	while (true)
 	{
 		int32 y_end = y;
-		while (error >= delta_x)
+		while (error >= delta_x && y_end != y2)
 		{
 			y_end += y_step;
 			error -= delta_x_2;
@@ -109,8 +116,16 @@ static void triangle_edge(Vec_2f left, Vec_2f right, Vec_3f left_colour, Vec_3f 
 
 		while (true)
 		{
-			out_x_values[y] = x;
-			out_colours[y] = y1 != y2 ? vec_3f_lerp(left_colour, right_colour, (y - y1) / (float)(y2 - y1)) : left_colour;
+			if (x < out_min_x[y])
+			{
+				out_min_x[y] = x;
+				out_min_colour[y] = y1 != y2 ? vec_3f_lerp(a_col, b_col, (y - y1) / (float)(y2 - y1)) : a_col; // TODO shouldn't calc this twice
+			}
+			if (x > out_max_x[y])
+			{
+				out_max_x[y] = x;
+				out_max_colour[y] = y1 != y2 ? vec_3f_lerp(a_col, b_col, (y - y1) / (float)(y2 - y1)) : a_col; // TODO shouldn't calc this twice
+			}
 
 			if (y == y_end)
 			{
@@ -119,93 +134,42 @@ static void triangle_edge(Vec_2f left, Vec_2f right, Vec_3f left_colour, Vec_3f 
 
 			y += y_step;
 		}
+
+		if (x == x2)
+		{
+			break;
+		}
+		x += x_step;
 	}
 }
 
-static void draw_triangle(const Vec_2f position[3], const Vec_3f colours[3])
+static void draw_triangle(const Vec_3f position[3], const Vec_3f colours[3])
 {
 	// High level algorithm is to plot the 3 lines describing the edges, use
 	// this to figure out per row (y) what the min/max x value is, and 
 	// interpolating any attributes (e.g. normal, texcoord, etc) along the edge.
 	// Then go row by row, and min x to max x, filling in the pixels, and 
-	// interpolating attributes from min to max x.
-
-	// Not sure if this is a good way of doing it, but I wanted to avoid doing
-	// something like this along the edges:
-	// min_x[y] = min(min_x[y], x);
-	// max_x[y] = max(max_x[y], x);
-	// So instead if we sort the vertices by x, we know that the line left to 
-	// mid will all be min_x, mid to right will all be max_x, and left to right
-	// will be either, depending on the slope of the edge
-	int32 left, mid, right;
-	if (position[0].x < position[1].x)
-	{
-		if (position[0].x < position[2].x)
-		{
-			left = 0;
-			if (position[1].x < position[2].x)
-			{
-				mid = 1;
-				right = 2;
-			}
-			else
-			{
-				mid = 2;
-				right = 1;
-			}
-		}
-		else
-		{
-			left = 2;
-			mid = 0;
-			right = 1;
-		}
-	}
-	else
-	{
-		if (position[2].x < position[1].x)
-		{
-			left = 2;
-			mid = 1;
-			right = 0;
-		}
-		else
-		{
-			left = 1;
-			if (position[0].x < position[2].x)
-			{
-				mid = 0;
-				right = 2;
-			}
-			else
-			{
-				mid = 2;
-				right = 0;
-			}
-		}
-	}
-
-	int32 min[c_frame_height];
-	Vec_3f min_col[c_frame_height];
-	int32 max[c_frame_height];
-	Vec_3f max_col[c_frame_height];
-
-	triangle_edge(position[left], position[mid], colours[left], colours[mid], min, min_col);
-	triangle_edge(position[mid], position[right],colours[mid], colours[right], max, max_col);
+	// interpolating attributes from min to max x
 	
-	float32 lr = (position[right].y - position[left].y) / (position[right].x - position[left].x);
-	float32 lm = (position[mid].y - position[left].y) / (position[mid].x - position[left].x);
-	if ((lr < 0 && lm < lr) || (lr >= 0 && lm > lr))
+	// TODO maybe this should be some renderer state
+	static int32 min[c_frame_height];
+	static Vec_3f min_col[c_frame_height];
+	static int32 max[c_frame_height];
+	static Vec_3f max_col[c_frame_height];
+
+	const int32 y_min = int32_min(int32_min(int32(position[0].y), int32(position[1].y)), int32(position[2].y));
+	const int32 y_max = int32_max(int32_max(int32(position[0].y), int32(position[1].y)), int32(position[2].y));
+
+	// TODO is there a better way of doing this?
+	for (int32 y = y_min; y <= y_max; ++y)
 	{
-		triangle_edge(position[left], position[right],colours[left], colours[right], max, max_col);
-	}
-	else
-	{
-		triangle_edge(position[left], position[right], colours[left], colours[right], min, min_col);
+		min[y] = c_frame_width;
+		max[y] = -1;
 	}
 
-	int32 y_min = int32_min(int32_min(int32(position[0].y), int32(position[1].y)), int32(position[2].y));
-	int32 y_max = int32_max(int32_max(int32(position[0].y), int32(position[1].y)), int32(position[2].y));
+	triangle_edge(position[0], position[1], colours[0], colours[1], min, max, min_col, max_col);
+	triangle_edge(position[1], position[2],colours[1], colours[2], min, max, min_col, max_col);
+	triangle_edge(position[2], position[0], colours[2], colours[0], min, max, min_col, max_col);
 	
 	for (int32 y = y_min; y <= y_max; ++y)
 	{
@@ -338,63 +302,61 @@ int WinMain(
 											3, 7, 4, 3, 4, 0, // left
 											1, 5, 6, 1, 6, 2 }; // right
 
-			// ndc coordinates
-			constexpr Vec_2f v1 = { 0.1f, 0.1f };
-			constexpr Vec_2f v2 = { 0.5f, 0.9f };
-			constexpr Vec_2f v3 = { 0.9f, 0.1f };
-
-			// screen coordinates
-			constexpr Vec_2f p1 = { v1.x * c_frame_width, v1.y * c_frame_height };
-			constexpr Vec_2f p2 = { v2.x * c_frame_width, v2.y * c_frame_height };
-			constexpr Vec_2f p3 = { v3.x * c_frame_width, v3.y * c_frame_height };
-			/*constexpr Vec_2f p1 = {10, 10};
-			constexpr Vec_2f p2 = {20, 20};
-			constexpr Vec_2f p3 = {30, 5};*/
-			constexpr Vec_2f positions[3] = { p1, p2, p3 };
-
 			constexpr Vec_3f red = { 0.0f, 0.0f, 1.0f };
 			constexpr Vec_3f blue = { 1.0f, 0.0f, 0.0f };
 			constexpr Vec_3f green = { 0.0f, 1.0f, 0.0f };
 			constexpr Vec_3f colours[3] = { red, blue, green };
-			draw_triangle(positions, colours);
 
-			/*draw_line(p1, p2);
-			draw_line(p2, p3);
-			draw_line(p3, p1);*/
-
-			//draw(vertices, triangles);
-			constexpr float32 c_fov_y = 90.0f;
+			constexpr float32 c_fov_y = 60.0f * c_deg_to_rad;
 			constexpr float32 c_near = 0.1f;
 			constexpr float32 c_far = 1000.0f;
 			Matrix_4x4 projection_matrix;
 			matrix_4x4_projection(&projection_matrix, c_fov_y, c_frame_width / (float32)c_frame_height, c_near, c_far);
 
 			Matrix_4x4 view_matrix;
-			matrix_4x4_camera(&view_matrix, { 0.0f, 0.0f, 0.0f }, { 0.0f, 2.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f });
+			matrix_4x4_camera(&view_matrix, { 0.0f, 0.0f, 0.0f }, { 0.0f, 5.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f });
 
 			Matrix_4x4 view_projection_matrix;
 			matrix_4x4_mul(&view_projection_matrix, &projection_matrix, &view_matrix);
 
 			Matrix_4x4 model_matrix;
-			matrix_4x4_transform(&model_matrix, { 0.0f, 1.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.00000001f));
+			matrix_4x4_transform(&model_matrix, { 0.0f, 1.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0000001f));
 
 			Matrix_4x4 model_view_projection_matrix;
 			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
 
-			Vec_2f projected_vertices[8];
+			Vec_3f projected_vertices[8];
 			for (int i = 0; i < 8; ++i)
 			{
 				Vec_4f projected3d = matrix_4x4_mul_vec4(&model_view_projection_matrix, vertices[i]);
 				projected3d.x /= projected3d.w;
 				projected3d.y /= projected3d.w;
+				projected3d.z /= projected3d.w;
 				projected3d.x = (projected3d.x + 1) / 2;
 				projected3d.y = (projected3d.y + 1) / 2;
 				projected3d.x *= c_frame_width;
 				projected3d.y *= c_frame_height;
-				projected_vertices[i] = { projected3d.x, projected3d.y };
+				projected_vertices[i] = { projected3d.x, projected3d.y, projected3d.z };
 			}
 
-			draw_triangle(projected_vertices, colours);
+			Vec_3f tmp[3];
+			for (int i = 0; i < 12; ++i)
+			{
+				int base = i * 3;
+
+				tmp[0] = projected_vertices[triangles[base]];
+				tmp[1] = projected_vertices[triangles[base + 1]];
+				tmp[2] = projected_vertices[triangles[base + 2]];
+
+				if (vec_3f_cross(vec_3f_sub(tmp[0], tmp[1]), vec_3f_sub(tmp[0], tmp[2])).z > 0.0f)
+				{
+					draw_triangle(tmp, colours);
+				}
+
+				/*draw_line(tmp[0], tmp[1]);
+				draw_line(tmp[1], tmp[2]);
+				draw_line(tmp[2], tmp[0]);*/
+			}
 
 			SetDIBitsToDevice(
 				dc,
