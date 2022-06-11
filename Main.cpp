@@ -15,12 +15,12 @@ static constexpr int32 pixel(int32 x, int32 y)
 	return ((y * c_frame_width) + x) * 3;
 }
 
-static void draw_line(Vec_2f p1, Vec_2f p2) // TODO more efficient algo impl
+static void draw_line(Vec_3f p1, Vec_3f p2) // TODO more efficient algo impl
 {
 	// make sure we're iterating x in a positive direction
 	if (p1.x > p2.x)
 	{
-		Vec_2f temp = p1;
+		Vec_3f temp = p1;
 		p1 = p2;
 		p2 = temp;
 	}
@@ -314,13 +314,13 @@ int WinMain(
 			matrix_4x4_projection(&projection_matrix, c_fov_y, c_frame_width / (float32)c_frame_height, c_near, c_far);
 
 			Matrix_4x4 view_matrix;
-			matrix_4x4_camera(&view_matrix, { 0.0f, 0.0f, 0.0f }, { 0.0f, 5.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f });
+			matrix_4x4_camera(&view_matrix, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f });
 
 			Matrix_4x4 view_projection_matrix;
 			matrix_4x4_mul(&view_projection_matrix, &projection_matrix, &view_matrix);
 
 			Matrix_4x4 model_matrix;
-			matrix_4x4_transform(&model_matrix, { 0.0f, 1.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0000001f));
+			matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0000001f));
 
 			Matrix_4x4 model_view_projection_matrix;
 			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
