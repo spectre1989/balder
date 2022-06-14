@@ -116,15 +116,18 @@ static void triangle_edge(
 
 		while (true)
 		{
-			if (x < out_min_x[y])
-			{
-				out_min_x[y] = x;
-				out_min_colour[y] = y1 != y2 ? vec_3f_lerp(a_col, b_col, (y - y1) / (float)(y2 - y1)) : a_col; // TODO shouldn't calc this twice
-			}
-			if (x > out_max_x[y])
-			{
-				out_max_x[y] = x;
-				out_max_colour[y] = y1 != y2 ? vec_3f_lerp(a_col, b_col, (y - y1) / (float)(y2 - y1)) : a_col; // TODO shouldn't calc this twice
+			// TODO can we calculate the begin/end range to fill in and do it, then update y to y_end in one step?
+			if (y >= 0 && y < c_frame_height) {
+				if (x < out_min_x[y])
+				{
+					out_min_x[y] = x;
+					out_min_colour[y] = y1 != y2 ? vec_3f_lerp(a_col, b_col, (y - y1) / (float)(y2 - y1)) : a_col; // TODO shouldn't calc this twice
+				}
+				if (x > out_max_x[y])
+				{
+					out_max_x[y] = x;
+					out_max_colour[y] = y1 != y2 ? vec_3f_lerp(a_col, b_col, (y - y1) / (float)(y2 - y1)) : a_col; // TODO shouldn't calc this twice
+				}
 			}
 
 			if (y == y_end)
@@ -143,7 +146,7 @@ static void triangle_edge(
 	}
 }
 
-static void draw_triangle(const Vec_3f position[3], const Vec_3f colours[3])
+static void draw_triangle(const Vec_3f position[3], const Vec_3f colour[3])
 {
 	// High level algorithm is to plot the 3 lines describing the edges, use
 	// this to figure out per row (y) what the min/max x value is, and 
@@ -157,8 +160,8 @@ static void draw_triangle(const Vec_3f position[3], const Vec_3f colours[3])
 	static int32 max[c_frame_height];
 	static Vec_3f max_col[c_frame_height];
 
-	const int32 y_min = int32_min(int32_min(int32(position[0].y), int32(position[1].y)), int32(position[2].y));
-	const int32 y_max = int32_max(int32_max(int32(position[0].y), int32(position[1].y)), int32(position[2].y));
+	const int32 y_min = int32_max(0, int32_min(int32_min(int32(position[0].y), int32(position[1].y)), int32(position[2].y)));
+	const int32 y_max = int32_min(c_frame_height-1, int32_max(int32_max(int32(position[0].y), int32(position[1].y)), int32(position[2].y)));
 
 	// TODO is there a better way of doing this?
 	for (int32 y = y_min; y <= y_max; ++y)
@@ -167,13 +170,14 @@ static void draw_triangle(const Vec_3f position[3], const Vec_3f colours[3])
 		max[y] = -1;
 	}
 
-	triangle_edge(position[0], position[1], colours[0], colours[1], min, max, min_col, max_col);
-	triangle_edge(position[1], position[2],colours[1], colours[2], min, max, min_col, max_col);
-	triangle_edge(position[2], position[0], colours[2], colours[0], min, max, min_col, max_col);
+	triangle_edge(position[0], position[1], colour[0], colour[1], min, max, min_col, max_col);
+	triangle_edge(position[1], position[2],colour[1], colour[2], min, max, min_col, max_col);
+	triangle_edge(position[2], position[0], colour[2], colour[0], min, max, min_col, max_col);
 	
-	for (int32 y = y_min; y <= y_max; ++y)
+	for (int32 y = int32_max(y_min, 0); y <= y_max; ++y)
 	{
-		for (int32 x = min[y]; x <= max[y]; ++x)
+		const int32 max_x = int32_min(max[y], c_frame_width - 1);
+		for (int32 x = int32_max(min[y], 0); x <= max_x; ++x)
 		{
 			Vec_3f colour = min[y] != max[y] ? vec_3f_lerp(min_col[y], max_col[y], (x - min[y]) / (float32)(max[y] - min[y])) : min_col[y];
 			const int32 offset = pixel(x, y);
@@ -320,7 +324,7 @@ int WinMain(
 			matrix_4x4_mul(&view_projection_matrix, &projection_matrix, &view_matrix);
 
 			Matrix_4x4 model_matrix;
-			matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0000001f));
+			matrix_4x4_transform(&model_matrix, { 3.0f * cosf(now.QuadPart * 0.00000001f), 2.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0000001f));
 
 			Matrix_4x4 model_view_projection_matrix;
 			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
@@ -348,9 +352,22 @@ int WinMain(
 				tmp[1] = projected_vertices[triangles[base + 1]];
 				tmp[2] = projected_vertices[triangles[base + 2]];
 
-				if (vec_3f_cross(vec_3f_sub(tmp[0], tmp[1]), vec_3f_sub(tmp[0], tmp[2])).z > 0.0f)
+				// TODO is it quicker to do this before projection by seeing if
+				// any of the vertices lie on the positive side of the planes
+				// defining the view frustum
+				for (int i = 0; i < 3; ++i)
 				{
-					draw_triangle(tmp, colours);
+					if (tmp[i].x >= 0.0f && tmp[i].x < c_frame_width && 
+						tmp[i].y >= 0.0f && tmp[i].y < c_frame_height)
+					{
+						// at least one vertex is visible
+						if (vec_3f_cross(vec_3f_sub(tmp[0], tmp[1]), vec_3f_sub(tmp[0], tmp[2])).z > 0.0f)
+						{
+							draw_triangle(tmp, colours);
+						}
+
+						break;
+					}
 				}
 
 				/*draw_line(tmp[0], tmp[1]);
