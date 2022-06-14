@@ -171,13 +171,13 @@ constexpr Quat quat_mul(Quat a, Quat b)
 
 void matrix_4x4_projection(Matrix_4x4* matrix, float32 fov_y, float32 aspect_ratio, float32 near_plane, float32 far_plane);
 void matrix_4x4_translation(Matrix_4x4* matrix, Vec_3f translation);
-void matrix_4x4_mul(Matrix_4x4* result, Matrix_4x4* a, Matrix_4x4* b);
+void matrix_4x4_mul(Matrix_4x4* result, const Matrix_4x4* a, const Matrix_4x4* b);
 // matrix * {x, y, z, 1}
-Vec_3f matrix_4x4_mul(Matrix_4x4* matrix, Vec_3f v);
+Vec_3f matrix_4x4_mul(const Matrix_4x4* matrix, Vec_3f v);
 // matrix * {x, y, z, 0}
-Vec_3f matrix_4x4_mul_direction(Matrix_4x4* matrix, Vec_3f v);
+Vec_3f matrix_4x4_mul_direction(const Matrix_4x4* matrix, Vec_3f v);
 // matrix * {x, y, z, 1}
-Vec_4f matrix_4x4_mul_vec4(Matrix_4x4* matrix, Vec_3f v);
+Vec_4f matrix_4x4_mul_vec4(const Matrix_4x4* matrix, Vec_3f v);
 void matrix_4x4_camera(Matrix_4x4* matrix, Vec_3f position, Vec_3f forward, Vec_3f up, Vec_3f right);
 void matrix_4x4_lookat(Matrix_4x4* matrix, Vec_3f position, Vec_3f target, Vec_3f up);
 void matrix_4x4_rotation(Matrix_4x4* matrix, Quat rotation);

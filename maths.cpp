@@ -62,7 +62,7 @@ void matrix_4x4_translation(Matrix_4x4* matrix, Vec_3f translation)
 	matrix->m44 = 1.0f;
 }
 
-void matrix_4x4_mul(Matrix_4x4* result, Matrix_4x4* a, Matrix_4x4* b)
+void matrix_4x4_mul(Matrix_4x4* result, const Matrix_4x4* a, const Matrix_4x4* b)
 {
 	assert(result != a && result != b);
 	result->m11 = (a->m11 * b->m11) + (a->m12 * b->m21) + (a->m13 * b->m31) + (a->m14 * b->m41);
@@ -83,21 +83,21 @@ void matrix_4x4_mul(Matrix_4x4* result, Matrix_4x4* a, Matrix_4x4* b)
 	result->m44 = (a->m41 * b->m14) + (a->m42 * b->m24) + (a->m43 * b->m34) + (a->m44 * b->m44);
 }
 
-Vec_3f matrix_4x4_mul(Matrix_4x4* matrix, Vec_3f v)
+Vec_3f matrix_4x4_mul(const Matrix_4x4* matrix, Vec_3f v)
 {
 	return { (v.x * matrix->m11) + (v.y * matrix->m12) + (v.z * matrix->m13) + matrix->m14,
 		(v.x * matrix->m21) + (v.y * matrix->m22) + (v.z * matrix->m23) + matrix->m24,
 		(v.x * matrix->m31) + (v.y * matrix->m32) + (v.z * matrix->m33) + matrix->m34};
 }
 
-Vec_3f matrix_4x4_mul_direction(Matrix_4x4* matrix, Vec_3f v)
+Vec_3f matrix_4x4_mul_direction(const Matrix_4x4* matrix, Vec_3f v)
 {
 	return { (v.x * matrix->m11) + (v.y * matrix->m12) + (v.z * matrix->m13),
 		(v.x * matrix->m21) + (v.y * matrix->m22) + (v.z * matrix->m23),
 		(v.x * matrix->m31) + (v.y * matrix->m32) + (v.z * matrix->m33) };
 }
 
-Vec_4f matrix_4x4_mul_vec4(Matrix_4x4* matrix, Vec_3f v)
+Vec_4f matrix_4x4_mul_vec4(const Matrix_4x4* matrix, Vec_3f v)
 {
 	return { (v.x * matrix->m11) + (v.y * matrix->m12) + (v.z * matrix->m13) + matrix->m14,
 		(v.x * matrix->m21) + (v.y * matrix->m22) + (v.z * matrix->m23) + matrix->m24,

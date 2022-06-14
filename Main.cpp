@@ -8,11 +8,12 @@
 static constexpr int32 c_frame_width = 640;
 static constexpr int32 c_frame_height = 480;
 static uint8 frame[c_frame_width * c_frame_height * 3];
+static float32 depth_buffer[c_frame_width * c_frame_height * 3];
 
 
 static constexpr int32 pixel(int32 x, int32 y)
 {
-	return ((y * c_frame_width) + x) * 3;
+	return ((y * c_frame_width) + x);
 }
 
 static void draw_line(Vec_3f p1, Vec_3f p2) // TODO more efficient algo impl
@@ -59,9 +60,10 @@ static void draw_line(Vec_3f p1, Vec_3f p2) // TODO more efficient algo impl
 
 		while (true)
 		{
-			frame[pixel(x, y)] = 0xff;
-			frame[pixel(x, y) + 1] = 0xff;
-			frame[pixel(x, y) + 2] = 0xff;
+			const int32 offset = pixel(x, y) * 3;
+			frame[offset] = 0xff;
+			frame[offset + 1] = 0xff;
+			frame[offset + 2] = 0xff;
 
 			if (y == y_end)
 			{
@@ -74,9 +76,10 @@ static void draw_line(Vec_3f p1, Vec_3f p2) // TODO more efficient algo impl
 }
 
 static void triangle_edge(
-	Vec_3f a, Vec_3f b, 
-	Vec_3f a_col, Vec_3f b_col, 
-	int32* out_min_x, int32* out_max_x, 
+	Vec_3f a, Vec_3f b,
+	Vec_3f a_col, Vec_3f b_col,
+	int32* out_min_x, int32* out_max_x,
+	float32* out_min_depth, float32* out_max_depth,
 	Vec_3f* out_min_colour, Vec_3f* out_max_colour)
 {
 	const int32 x1 = int32(a.x);
@@ -121,12 +124,20 @@ static void triangle_edge(
 				if (x < out_min_x[y])
 				{
 					out_min_x[y] = x;
-					out_min_colour[y] = y1 != y2 ? vec_3f_lerp(a_col, b_col, (y - y1) / (float)(y2 - y1)) : a_col; // TODO shouldn't calc this twice
+
+					const float32 t = y1 != y2 ? (y - y1) / (float)(y2 - y1) : 0.0f;
+
+					out_min_depth[y] = float32_lerp(a.z, b.z, t);
+					out_min_colour[y] = vec_3f_lerp(a_col, b_col, t);
 				}
 				if (x > out_max_x[y])
 				{
 					out_max_x[y] = x;
-					out_max_colour[y] = y1 != y2 ? vec_3f_lerp(a_col, b_col, (y - y1) / (float)(y2 - y1)) : a_col; // TODO shouldn't calc this twice
+
+					const float32 t = y1 != y2 ? (y - y1) / (float)(y2 - y1) : 0.0f;
+
+					out_max_depth[y] = float32_lerp(a.z, b.z, t);
+					out_max_colour[y] = vec_3f_lerp(a_col, b_col, t);
 				}
 			}
 
@@ -154,10 +165,12 @@ static void draw_triangle(const Vec_3f position[3], const Vec_3f colour[3])
 	// Then go row by row, and min x to max x, filling in the pixels, and 
 	// interpolating attributes from min to max x
 	
-	// TODO maybe this should be some renderer state
-	static int32 min[c_frame_height];
+	// TODO put this somewhere, get all the globals/statics into a struct or something
+	static int32 min_x[c_frame_height];
+	static float32 min_depth[c_frame_height];
 	static Vec_3f min_col[c_frame_height];
-	static int32 max[c_frame_height];
+	static int32 max_x[c_frame_height];
+	static float32 max_depth[c_frame_height];
 	static Vec_3f max_col[c_frame_height];
 
 	const int32 y_min = int32_max(0, int32_min(int32_min(int32(position[0].y), int32(position[1].y)), int32(position[2].y)));
@@ -166,24 +179,79 @@ static void draw_triangle(const Vec_3f position[3], const Vec_3f colour[3])
 	// TODO is there a better way of doing this?
 	for (int32 y = y_min; y <= y_max; ++y)
 	{
-		min[y] = c_frame_width;
-		max[y] = -1;
+		min_x[y] = c_frame_width;
+		max_x[y] = -1;
 	}
 
-	triangle_edge(position[0], position[1], colour[0], colour[1], min, max, min_col, max_col);
-	triangle_edge(position[1], position[2],colour[1], colour[2], min, max, min_col, max_col);
-	triangle_edge(position[2], position[0], colour[2], colour[0], min, max, min_col, max_col);
+	triangle_edge(position[0], position[1], colour[0], colour[1], min_x, max_x, min_depth, max_depth, min_col, max_col);
+	triangle_edge(position[1], position[2], colour[1], colour[2], min_x, max_x, min_depth, max_depth, min_col, max_col);
+	triangle_edge(position[2], position[0], colour[2], colour[0], min_x, max_x, min_depth, max_depth, min_col, max_col);
 	
 	for (int32 y = int32_max(y_min, 0); y <= y_max; ++y)
 	{
-		const int32 max_x = int32_min(max[y], c_frame_width - 1);
-		for (int32 x = int32_max(min[y], 0); x <= max_x; ++x)
+		const int32 x_end = int32_min(max_x[y], c_frame_width - 1);
+		for (int32 x = int32_max(min_x[y], 0); x <= x_end; ++x)
 		{
-			Vec_3f colour = min[y] != max[y] ? vec_3f_lerp(min_col[y], max_col[y], (x - min[y]) / (float32)(max[y] - min[y])) : min_col[y];
+			const float32 t = min_x[y] != max_x[y] ? (x - min_x[y]) / (float32)(max_x[y] - min_x[y]) : 0.0f;
+			const float32 depth = float32_lerp(min_depth[y], max_depth[y], t);
+
 			const int32 offset = pixel(x, y);
-			frame[offset] = uint8(0xff * colour.x);
-			frame[offset + 1] = uint8(0xff * colour.y);
-			frame[offset + 2] = uint8(0xff * colour.z);
+			if (depth_buffer[offset] > depth)
+			{
+				depth_buffer[offset] = depth;
+
+				Vec_3f colour = vec_3f_lerp(min_col[y], max_col[y], t);
+
+				const int32 frame_offset = offset * 3;
+				frame[frame_offset] = uint8(0xff * colour.x);
+				frame[frame_offset + 1] = uint8(0xff * colour.y);
+				frame[frame_offset + 2] = uint8(0xff * colour.z);
+			}
+		}
+	}
+}
+
+void project_and_draw(const Vec_3f* vertices, const Vec_3f* colours, Vec_3f* projected_vertices, const int32 vertex_count, const int32* triangles, const int32 triangle_count, const Matrix_4x4* projection_matrix)
+{
+	for (int i = 0; i < vertex_count; ++i)
+	{
+		Vec_4f projected3d = matrix_4x4_mul_vec4(projection_matrix, vertices[i]);
+		projected3d.x /= projected3d.w;
+		projected3d.y /= projected3d.w;
+		projected3d.z /= projected3d.w;
+		projected3d.x = (projected3d.x + 1) / 2;
+		projected3d.y = (projected3d.y + 1) / 2;
+		projected3d.x *= c_frame_width;
+		projected3d.y *= c_frame_height;
+		projected_vertices[i] = { projected3d.x, projected3d.y, projected3d.z };
+	}
+
+	Vec_3f tmp[3];
+	for (int i = 0; i < 12; ++i)
+	{
+		int base = i * 3;
+
+		tmp[0] = projected_vertices[triangles[base]];
+		tmp[1] = projected_vertices[triangles[base + 1]];
+		tmp[2] = projected_vertices[triangles[base + 2]];
+
+		// TODO is it quicker to do this before projection by seeing if
+		// any of the vertices lie on the positive side of the planes
+		// defining the view frustum
+		for (int i = 0; i < 3; ++i)
+		{
+			// TODO depth based culling too
+			if (tmp[i].x >= 0.0f && tmp[i].x < c_frame_width &&
+				tmp[i].y >= 0.0f && tmp[i].y < c_frame_height)
+			{
+				// at least one vertex is visible
+				if (vec_3f_cross(vec_3f_sub(tmp[0], tmp[1]), vec_3f_sub(tmp[0], tmp[2])).z > 0.0f)
+				{
+					draw_triangle(tmp, colours);
+				}
+
+				break;
+			}
 		}
 	}
 }
@@ -288,8 +356,6 @@ int WinMain(
 			bitmap_info.bmiHeader.biBitCount = 24;
 			bitmap_info.bmiHeader.biCompression = BI_RGB;
 
-			memset(frame, 0, sizeof(frame));
-
 			// vertex/index buffers
 			constexpr Vec_3f vertices[8] = { {-0.5f, -0.5f, -0.5f}, 
 											{0.5f, -0.5f, -0.5f}, 
@@ -310,7 +376,7 @@ int WinMain(
 			constexpr Vec_3f blue = { 1.0f, 0.0f, 0.0f };
 			constexpr Vec_3f green = { 0.0f, 1.0f, 0.0f };
 			constexpr Vec_3f colours[3] = { red, blue, green };
-
+			
 			constexpr float32 c_fov_y = 60.0f * c_deg_to_rad;
 			constexpr float32 c_near = 0.1f;
 			constexpr float32 c_far = 1000.0f;
@@ -323,57 +389,27 @@ int WinMain(
 			Matrix_4x4 view_projection_matrix;
 			matrix_4x4_mul(&view_projection_matrix, &projection_matrix, &view_matrix);
 
+			// clear previous draw
+			memset(frame, 0, sizeof(frame));
+			for (int i = 0; i < (c_frame_width * c_frame_height); ++i)
+			{
+				depth_buffer[i] = c_far;
+			}
+			
+
 			Matrix_4x4 model_matrix;
-			matrix_4x4_transform(&model_matrix, { 3.0f * cosf(now.QuadPart * 0.00000001f), 2.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0000001f));
+			matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0000001f));
 
 			Matrix_4x4 model_view_projection_matrix;
 			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
 
 			Vec_3f projected_vertices[8];
-			for (int i = 0; i < 8; ++i)
-			{
-				Vec_4f projected3d = matrix_4x4_mul_vec4(&model_view_projection_matrix, vertices[i]);
-				projected3d.x /= projected3d.w;
-				projected3d.y /= projected3d.w;
-				projected3d.z /= projected3d.w;
-				projected3d.x = (projected3d.x + 1) / 2;
-				projected3d.y = (projected3d.y + 1) / 2;
-				projected3d.x *= c_frame_width;
-				projected3d.y *= c_frame_height;
-				projected_vertices[i] = { projected3d.x, projected3d.y, projected3d.z };
-			}
+			project_and_draw(vertices, colours, projected_vertices, 8, triangles, 12, &model_view_projection_matrix);
 
-			Vec_3f tmp[3];
-			for (int i = 0; i < 12; ++i)
-			{
-				int base = i * 3;
-
-				tmp[0] = projected_vertices[triangles[base]];
-				tmp[1] = projected_vertices[triangles[base + 1]];
-				tmp[2] = projected_vertices[triangles[base + 2]];
-
-				// TODO is it quicker to do this before projection by seeing if
-				// any of the vertices lie on the positive side of the planes
-				// defining the view frustum
-				for (int i = 0; i < 3; ++i)
-				{
-					if (tmp[i].x >= 0.0f && tmp[i].x < c_frame_width && 
-						tmp[i].y >= 0.0f && tmp[i].y < c_frame_height)
-					{
-						// at least one vertex is visible
-						if (vec_3f_cross(vec_3f_sub(tmp[0], tmp[1]), vec_3f_sub(tmp[0], tmp[2])).z > 0.0f)
-						{
-							draw_triangle(tmp, colours);
-						}
-
-						break;
-					}
-				}
-
-				/*draw_line(tmp[0], tmp[1]);
-				draw_line(tmp[1], tmp[2]);
-				draw_line(tmp[2], tmp[0]);*/
-			}
+			// second intersecting cube
+			matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({ 0.0f, 0.0f, 1.0f }, now.QuadPart * 0.00000015f));
+			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
+			project_and_draw(vertices, colours, projected_vertices, 8, triangles, 12, &model_view_projection_matrix);
 
 			SetDIBitsToDevice(
 				dc,
