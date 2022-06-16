@@ -77,6 +77,7 @@ static void draw_line(Vec_3f p1, Vec_3f p2) // TODO more efficient algo impl
 
 static void triangle_edge(
 	Vec_3f a, Vec_3f b,
+	Vec_2f a_tex, Vec_2f b_tex,
 	Vec_3f a_col, Vec_3f b_col,
 	int32* out_min_x, int32* out_max_x,
 	float32* out_min_depth, float32* out_max_depth,
@@ -125,19 +126,25 @@ static void triangle_edge(
 				{
 					out_min_x[y] = x;
 
-					const float32 t = y1 != y2 ? (y - y1) / (float)(y2 - y1) : 0.0f;
+					const int32 edge_len_sq = ((x2 - x1) * (x2 - x1)) + ((y2 - y1) * (y2 - y1));
+					const int32 distance_from_a_sq = ((x - x1) * (x - x1)) + ((y - y1) * (y - y1));
+					const float32 t = sqrtf(distance_from_a_sq / (float32)edge_len_sq);
 
 					out_min_depth[y] = float32_lerp(a.z, b.z, t);
-					out_min_colour[y] = vec_3f_lerp(a_col, b_col, t);
+					out_min_colour[y] = vec_3f_lerp({ a_tex.x, a_tex.y, 0.0f }, { b_tex.x, b_tex.y, 0.0f }, t);
+					//out_min_colour[y] = vec_3f_lerp(a_col, b_col, t);
 				}
 				if (x > out_max_x[y])
 				{
 					out_max_x[y] = x;
 
-					const float32 t = y1 != y2 ? (y - y1) / (float)(y2 - y1) : 0.0f;
+					const int32 edge_len_sq = ((x2 - x1) * (x2 - x1)) + ((y2 - y1) * (y2 - y1));
+					const int32 distance_from_a_sq = ((x - x1) * (x - x1)) + ((y - y1) * (y - y1));
+					const float32 t = sqrtf(distance_from_a_sq / (float32)edge_len_sq);
 
 					out_max_depth[y] = float32_lerp(a.z, b.z, t);
-					out_max_colour[y] = vec_3f_lerp(a_col, b_col, t);
+					out_max_colour[y] = vec_3f_lerp({ a_tex.x, a_tex.y, 0.0f }, { b_tex.x, b_tex.y, 0.0f }, t);
+					//out_max_colour[y] = vec_3f_lerp(a_col, b_col, t);
 				}
 			}
 
@@ -157,8 +164,9 @@ static void triangle_edge(
 	}
 }
 
-static void draw_triangle(const Vec_3f position[3], const Vec_3f colour[3])
+static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], const Vec_3f colour[3])
 {
+	OutputDebugStringA("draw_triangle\n");
 	// High level algorithm is to plot the 3 lines describing the edges, use
 	// this to figure out per row (y) what the min/max x value is, and 
 	// interpolating any attributes (e.g. normal, texcoord, etc) along the edge.
@@ -183,9 +191,9 @@ static void draw_triangle(const Vec_3f position[3], const Vec_3f colour[3])
 		max_x[y] = -1;
 	}
 
-	triangle_edge(position[0], position[1], colour[0], colour[1], min_x, max_x, min_depth, max_depth, min_col, max_col);
-	triangle_edge(position[1], position[2], colour[1], colour[2], min_x, max_x, min_depth, max_depth, min_col, max_col);
-	triangle_edge(position[2], position[0], colour[2], colour[0], min_x, max_x, min_depth, max_depth, min_col, max_col);
+	triangle_edge(position[0], position[1], texcoord[0], texcoord[1], colour[0], colour[1], min_x, max_x, min_depth, max_depth, min_col, max_col);
+	triangle_edge(position[1], position[2], texcoord[1], texcoord[2], colour[1], colour[2], min_x, max_x, min_depth, max_depth, min_col, max_col);
+	triangle_edge(position[2], position[0], texcoord[2], texcoord[0], colour[2], colour[0], min_x, max_x, min_depth, max_depth, min_col, max_col);
 	
 	for (int32 y = int32_max(y_min, 0); y <= y_max; ++y)
 	{
@@ -211,7 +219,7 @@ static void draw_triangle(const Vec_3f position[3], const Vec_3f colour[3])
 	}
 }
 
-void project_and_draw(const Vec_3f* vertices, const Vec_3f* colours, Vec_3f* projected_vertices, const int32 vertex_count, const int32* triangles, const int32 triangle_count, const Matrix_4x4* projection_matrix)
+void project_and_draw(const Vec_3f* vertices, const Vec_2f* texcoords, const Vec_3f* colours, Vec_3f* projected_vertices, const int32 vertex_count, const int32* triangles, const int32 triangle_count, const Matrix_4x4* projection_matrix)
 {
 	for (int i = 0; i < vertex_count; ++i)
 	{
@@ -226,14 +234,19 @@ void project_and_draw(const Vec_3f* vertices, const Vec_3f* colours, Vec_3f* pro
 		projected_vertices[i] = { projected3d.x, projected3d.y, projected3d.z };
 	}
 
-	Vec_3f tmp[3];
-	for (int i = 0; i < 12; ++i)
+	Vec_3f pos[3];
+	Vec_2f tex[3];
+	for (int i = 0; i < triangle_count; ++i)
 	{
-		int base = i * 3;
+		const int base = i * 3;
 
-		tmp[0] = projected_vertices[triangles[base]];
-		tmp[1] = projected_vertices[triangles[base + 1]];
-		tmp[2] = projected_vertices[triangles[base + 2]];
+		pos[0] = projected_vertices[triangles[base]];
+		pos[1] = projected_vertices[triangles[base + 1]];
+		pos[2] = projected_vertices[triangles[base + 2]];
+
+		tex[0] = texcoords[triangles[base]];
+		tex[1] = texcoords[triangles[base + 1]];
+		tex[2] = texcoords[triangles[base + 2]];
 
 		// TODO is it quicker to do this before projection by seeing if
 		// any of the vertices lie on the positive side of the planes
@@ -241,13 +254,13 @@ void project_and_draw(const Vec_3f* vertices, const Vec_3f* colours, Vec_3f* pro
 		for (int i = 0; i < 3; ++i)
 		{
 			// TODO depth based culling too
-			if (tmp[i].x >= 0.0f && tmp[i].x < c_frame_width &&
-				tmp[i].y >= 0.0f && tmp[i].y < c_frame_height)
+			if (pos[i].x >= 0.0f && pos[i].x < c_frame_width &&
+				pos[i].y >= 0.0f && pos[i].y < c_frame_height)
 			{
 				// at least one vertex is visible
-				if (vec_3f_cross(vec_3f_sub(tmp[0], tmp[1]), vec_3f_sub(tmp[0], tmp[2])).z > 0.0f)
+				if (vec_3f_cross(vec_3f_sub(pos[0], pos[1]), vec_3f_sub(pos[0], pos[2])).z > 0.0f)
 				{
-					draw_triangle(tmp, colours);
+					draw_triangle(pos, tex, colours);
 				}
 
 				break;
@@ -365,6 +378,14 @@ int WinMain(
 											{0.5f, -0.5f, 0.5f}, 
 											{0.5f, 0.5f, 0.5f}, 
 											{-0.5f, 0.5f, 0.5f} };
+			constexpr Vec_2f texcoords[8] = { {0.0f, 0.0f},
+											{1.0f, 0.0f},
+											{1.0f, 0.0f},
+											{0.0f, 0.0f},
+											{0.0f, 1.0f},
+											{1.0f, 1.0f},
+											{1.0f, 1.0f},
+											{0.0f, 1.0f} };
 			constexpr int32 triangles[36] = { 1, 2, 3, 1, 3, 0, // bottom
 											4, 7, 6, 4, 6, 5, // top
 											0, 4, 5, 0, 5, 1, // front
@@ -399,17 +420,19 @@ int WinMain(
 
 			Matrix_4x4 model_matrix;
 			matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0000001f));
+			//matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({0.0f, 1.0f, 0.0f}, now.QuadPart * 0.00000001f));
 
 			Matrix_4x4 model_view_projection_matrix;
 			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
 
 			Vec_3f projected_vertices[8];
-			project_and_draw(vertices, colours, projected_vertices, 8, triangles, 12, &model_view_projection_matrix);
+			project_and_draw(vertices, texcoords, colours, projected_vertices, 8, triangles, 12, &model_view_projection_matrix);
+			//project_and_draw(vertices, texcoords, colours, projected_vertices, 8, triangles + 12, 1, &model_view_projection_matrix);
 
 			// second intersecting cube
-			matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({ 0.0f, 0.0f, 1.0f }, now.QuadPart * 0.00000015f));
+			/*matrix_4x4_transform(&model_matrix, {0.0f, 2.0f, 0.0f}, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.00000015f));
 			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
-			project_and_draw(vertices, colours, projected_vertices, 8, triangles, 12, &model_view_projection_matrix);
+			project_and_draw(vertices, colours, projected_vertices, 8, triangles, 12, &model_view_projection_matrix);*/
 
 			SetDIBitsToDevice(
 				dc,
