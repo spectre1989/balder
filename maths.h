@@ -76,9 +76,39 @@ constexpr float32 float32_max(float32 a, float32 b)
 	return a > b ? a : b;
 }
 
+constexpr float32 float32_clamp(float32 min, float32 max, float32 value)
+{
+	return value < min ? min : (value > max ? max : value);
+}
+
 constexpr float32 float32_lerp(float32 a, float32 b, float32 t)
 {
 	return a + ((b - a) * t);
+}
+
+inline float32 float32_floor(float32 value)
+{
+	return floorf(value);
+}
+
+inline float32 float32_sqrt(float32 value)
+{
+	return sqrtf(value);
+}
+
+inline float32 float32_sin(float32 value)
+{
+	return sinf(value);
+}
+
+inline float32 float32_cos(float32 value)
+{
+	return cosf(value);
+}
+
+inline float32 float32_tan(float32 value)
+{
+	return tanf(value);
 }
 
 constexpr int32 int32_abs(int32 a)
@@ -94,6 +124,11 @@ constexpr int32 int32_min(int32 a, int32 b)
 constexpr int32 int32_max(int32 a, int32 b)
 {
 	return a > b ? a : b;
+}
+
+constexpr int32 int32_clamp(int32 min, int32 max, int32 value)
+{
+	return value < min ? min : (value > max ? max : value);
 }
 
 constexpr Vec_3f vec_3f_sub(Vec_3f a, Vec_3f b)

@@ -13,8 +13,8 @@ Quat quat_euler(Vec_3f euler)
 Quat quat_angle_axis(Vec_3f axis, float32 angle)
 {
 	float32 half_theta = angle * 0.5f;
-	float32 sin_half_theta = sinf(half_theta);
-	return { axis.x * sin_half_theta, axis.y * sin_half_theta, axis.z * sin_half_theta, cosf(half_theta) };
+	float32 sin_half_theta = float32_sin(half_theta);
+	return { axis.x * sin_half_theta, axis.y * sin_half_theta, axis.z * sin_half_theta, float32_cos(half_theta) };
 }
 
 void matrix_4x4_projection(
@@ -35,8 +35,8 @@ void matrix_4x4_projection(
 	// c1 = (near*far)/(near-far)
 	// c2 = far/(far-near)
 	* matrix = {};
-	matrix->m11 = 1.0f / (tanf(fov_y * 0.5f) * aspect_ratio);
-	matrix->m22 = -1.0f / tanf(fov_y * 0.5f);
+	matrix->m11 = 1.0f / (float32_tan(fov_y * 0.5f) * aspect_ratio);
+	matrix->m22 = -1.0f / float32_tan(fov_y * 0.5f);
 	matrix->m33 = (far_plane / (far_plane - near_plane));
 	matrix->m43 = 1.0f;
 	matrix->m34 = (near_plane * far_plane) / (near_plane - far_plane);
