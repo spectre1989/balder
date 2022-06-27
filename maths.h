@@ -131,6 +131,16 @@ constexpr int32 int32_clamp(int32 min, int32 max, int32 value)
 	return value < min ? min : (value > max ? max : value);
 }
 
+constexpr uint32 uint32_swap_endianness(uint32 u)
+{
+	return (u << 24) | (u & 0xff00) << 8 | (u & 0xff0000) >> 8 | (u >> 24);
+}
+
+constexpr Vec_2f vec_2f_lerp(Vec_2f a, Vec_2f b, float32 t)
+{
+	return { float32_lerp(a.x, b.x, t), float32_lerp(a.y, b.y, t) };
+}
+
 constexpr Vec_3f vec_3f_sub(Vec_3f a, Vec_3f b)
 {
 	return {a.x - b.x, a.y - b.y, a.z - b.z};

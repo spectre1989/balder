@@ -13,7 +13,7 @@ static float32 depth_buffer[c_frame_width * c_frame_height * 3];
 struct Texture {
 	uint32 width;
 	uint32 height;
-	const uint8* pixels;
+	uint8* pixels;
 };
 
 
@@ -87,7 +87,7 @@ static void triangle_edge(
 	Vec_3f a_col, Vec_3f b_col,
 	int32* out_min_x, int32* out_max_x,
 	float32* out_min_depth, float32* out_max_depth,
-	Vec_3f* out_min_colour, Vec_3f* out_max_colour)
+	Vec_2f* out_min_texcoord, Vec_2f* out_max_texcoord)
 {
 	const int32 x1 = int32(a.x);
 	const int32 y2 = int32(b.y);
@@ -137,8 +137,7 @@ static void triangle_edge(
 					const float32 t = float32_sqrt(distance_from_a_sq / (float32)edge_len_sq);
 
 					out_min_depth[y] = float32_lerp(a.z, b.z, t);
-					out_min_colour[y] = vec_3f_lerp({ a_tex.x, a_tex.y, 0.0f }, { b_tex.x, b_tex.y, 0.0f }, t);
-					//out_min_colour[y] = vec_3f_lerp(a_col, b_col, t);
+					out_min_texcoord[y] = vec_2f_lerp(a_tex, b_tex, t);
 				}
 				if (x > out_max_x[y])
 				{
@@ -149,8 +148,7 @@ static void triangle_edge(
 					const float32 t = float32_sqrt(distance_from_a_sq / (float32)edge_len_sq);
 
 					out_max_depth[y] = float32_lerp(a.z, b.z, t);
-					out_max_colour[y] = vec_3f_lerp({ a_tex.x, a_tex.y, 0.0f }, { b_tex.x, b_tex.y, 0.0f }, t);
-					//out_max_colour[y] = vec_3f_lerp(a_col, b_col, t);
+					out_max_texcoord[y] = vec_2f_lerp(a_tex, b_tex, t);
 				}
 			}
 
@@ -182,10 +180,10 @@ static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], co
 	// TODO put this somewhere, get all the globals/statics into a struct or something
 	static int32 min_x[c_frame_height];
 	static float32 min_depth[c_frame_height];
-	static Vec_3f min_col[c_frame_height];
+	static Vec_2f min_texcoord[c_frame_height];
 	static int32 max_x[c_frame_height];
 	static float32 max_depth[c_frame_height];
-	static Vec_3f max_col[c_frame_height];
+	static Vec_2f max_texcoord[c_frame_height];
 
 	const int32 y_min = int32_max(0, int32_min(int32_min(int32(position[0].y), int32(position[1].y)), int32(position[2].y)));
 	const int32 y_max = int32_min(c_frame_height-1, int32_max(int32_max(int32(position[0].y), int32(position[1].y)), int32(position[2].y)));
@@ -197,9 +195,9 @@ static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], co
 		max_x[y] = -1;
 	}
 
-	triangle_edge(position[0], position[1], texcoord[0], texcoord[1], colour[0], colour[1], min_x, max_x, min_depth, max_depth, min_col, max_col);
-	triangle_edge(position[1], position[2], texcoord[1], texcoord[2], colour[1], colour[2], min_x, max_x, min_depth, max_depth, min_col, max_col);
-	triangle_edge(position[2], position[0], texcoord[2], texcoord[0], colour[2], colour[0], min_x, max_x, min_depth, max_depth, min_col, max_col);
+	triangle_edge(position[0], position[1], texcoord[0], texcoord[1], colour[0], colour[1], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord);
+	triangle_edge(position[1], position[2], texcoord[1], texcoord[2], colour[1], colour[2], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord);
+	triangle_edge(position[2], position[0], texcoord[2], texcoord[0], colour[2], colour[0], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord);
 	
 	for (int32 y = int32_max(y_min, 0); y <= y_max; ++y)
 	{
@@ -214,15 +212,12 @@ static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], co
 			{
 				depth_buffer[offset] = depth;
 
-				Vec_3f texcoord = vec_3f_lerp(min_col[y], max_col[y], t);
+				Vec_2f texcoord = vec_2f_lerp(min_texcoord[y], max_texcoord[y], t);
 				const int32 tex_pixel_x = int32_clamp(0, texture->width - 1, (int32)float32_floor(texcoord.x * texture->width));
 				const int32 tex_pixel_y = int32_clamp(0, texture->height - 1, (int32)float32_floor(texcoord.y * texture->height));
 				const int32 tex_pixel_offset = ((tex_pixel_y * texture->width) + tex_pixel_x) * 3;
 
 				const int32 frame_offset = offset * 3;
-				/*frame[frame_offset] = uint8(0xff * colour.x);
-				frame[frame_offset + 1] = uint8(0xff * colour.y);
-				frame[frame_offset + 2] = uint8(0xff * colour.z);*/
 				frame[frame_offset] = texture->pixels[tex_pixel_offset];
 				frame[frame_offset + 1] = texture->pixels[tex_pixel_offset + 1];
 				frame[frame_offset + 2] = texture->pixels[tex_pixel_offset + 2];
@@ -249,7 +244,7 @@ void project_and_draw(
 		projected3d.y /= projected3d.w;
 		projected3d.z /= projected3d.w;
 		projected3d.x = (projected3d.x + 1) / 2;
-		projected3d.y = (projected3d.y + 1) / 2;
+		projected3d.y = (projected3d.y - 1) / -2;
 		projected3d.x *= c_frame_width;
 		projected3d.y *= c_frame_height;
 		projected_vertices[i] = { projected3d.x, projected3d.y, projected3d.z };
@@ -288,6 +283,40 @@ void project_and_draw(
 			}
 		}
 	}
+}
+
+uint8* read_file(const char* path)
+{
+	HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	LARGE_INTEGER file_size;
+	GetFileSizeEx(file, &file_size);
+	uint8* bytes = new uint8[file_size.QuadPart];
+	DWORD bytes_read;
+	const BOOL success = ReadFile(file, bytes, file_size.QuadPart, &bytes_read, nullptr);
+	assert(success);
+	return bytes;
+}
+
+Texture texture_bmp(uint8* bmp_file)
+{
+	Texture texture = {};
+	
+	const bool is_bmp = *((uint16*)bmp_file) == 0x4d42;
+	assert(is_bmp);
+	
+	const uint32 pixel_data_start = *((uint32*)(bmp_file + 10));
+
+	texture.width = *((int32*)(bmp_file + 18));
+	texture.height = *((int32*)(bmp_file + 22));
+
+	const uint32 pixel_count = texture.width * texture.height;
+	texture.pixels = new uint8[pixel_count * 3];
+
+	const uint16 bits_per_pixel = *((uint16*)(bmp_file + 28));
+
+	memcpy(texture.pixels, bmp_file + pixel_data_start, pixel_count * 3);
+
+	return texture;
 }
 
 LRESULT wnd_proc(
@@ -344,6 +373,12 @@ int WinMain(
 
 	ShowWindow(window, show_cmd);
 
+
+	uint8* texture_file = read_file("data/models/Textures/stones.bmp");
+	const Texture texture = texture_bmp(texture_file);
+	delete[] texture_file;
+
+
 	LARGE_INTEGER clock_freq;
 	QueryPerformanceFrequency(&clock_freq);
 	LARGE_INTEGER last_frame_time;
@@ -391,41 +426,102 @@ int WinMain(
 			bitmap_info.bmiHeader.biCompression = BI_RGB;
 
 			// vertex/index buffers
-			constexpr Vec_3f vertices[8] = { {-0.5f, -0.5f, -0.5f}, 
-											{0.5f, -0.5f, -0.5f}, 
-											{0.5f, 0.5f, -0.5f}, 
-											{-0.5f, 0.5f, -0.5f},
-											{-0.5f, -0.5f, 0.5f}, 
-											{0.5f, -0.5f, 0.5f}, 
-											{0.5f, 0.5f, 0.5f}, 
-											{-0.5f, 0.5f, 0.5f} };
-			constexpr Vec_2f texcoords[8] = { {0.0f, 0.0f},
-											{1.0f, 0.0f},
-											{1.0f, 0.0f},
-											{0.0f, 0.0f},
-											{0.0f, 1.0f},
-											{1.0f, 1.0f},
-											{1.0f, 1.0f},
-											{0.0f, 1.0f} };
-			constexpr int32 triangles[36] = { 1, 2, 3, 1, 3, 0, // bottom
-											4, 7, 6, 4, 6, 5, // top
-											0, 4, 5, 0, 5, 1, // front
-											2, 6, 7, 2, 7, 3, // back
-											3, 7, 4, 3, 4, 0, // left
-											1, 5, 6, 1, 6, 2 }; // right
-			constexpr uint32 texture_width = 5;
-			constexpr uint32 texture_height = 5;
-			constexpr uint8 texture_pixels[texture_width * texture_height * 3] = {
-				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-				0xff, 0xff, 0xff, 0x55, 0x55, 0x55, 0xff, 0xff, 0xff, 0x55, 0x55, 0x55, 0xff, 0xff, 0xff,
-				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-				0xff, 0xff, 0xff, 0x55, 0x55, 0x55, 0xff, 0xff, 0xff, 0x55, 0x55, 0x55, 0xff, 0xff, 0xff,
-				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
-			const Texture texture = {
-				texture_width,
-				texture_height,
-				texture_pixels
+			constexpr Vec_3f vertices[24] = {
+				// bottom
+				{-0.5f, -0.5f, -0.5f},
+				{0.5f, -0.5f, -0.5f}, 
+				{0.5f, 0.5f, -0.5f}, 
+				{-0.5f, 0.5f, -0.5f},
+				// top
+				{-0.5f, -0.5f, 0.5f},
+				{0.5f, -0.5f, 0.5f}, 
+				{0.5f, 0.5f, 0.5f},
+				{ -0.5f, 0.5f, 0.5f },
+				// front 
+				{-0.5f, -0.5f, -0.5f},
+				{-0.5f, -0.5f, 0.5f},
+				{0.5f, -0.5f, -0.5f},
+				{0.5f, -0.5f, 0.5f},
+				// back 
+				{-0.5f, 0.5f, -0.5f},
+				{-0.5f, 0.5f, 0.5f},
+				{0.5f, 0.5f, -0.5f},
+				{ 0.5f, 0.5f, 0.5f },
+				// left 
+				{-0.5f, -0.5f, -0.5f},
+				{-0.5f, -0.5f, 0.5f},
+				{-0.5f, 0.5f, -0.5f},
+				{-0.5f, 0.5f, 0.5f},
+				// right 
+				{0.5f, -0.5f, -0.5f},
+				{0.5f, -0.5f, 0.5f},
+				{0.5f, 0.5f, -0.5f},
+				{0.5f, 0.5f, 0.5f}
 			};
+			constexpr Vec_3f normals[24] = {
+				// bottom
+				{0.0f, 0.0f, -1.0f},
+				{0.0f, 0.0f, -1.0f},
+				{0.0f, 0.0f, -1.0f},
+				{0.0f, 0.0f, -1.0f},
+				// top
+				{0.0f, 0.0f, 1.0f},
+				{0.0f, 0.0f, 1.0f},
+				{0.0f, 0.0f, 1.0f},
+				{0.0f, 0.0f, 1.0f},
+				// front 
+				{0.0f, -1.0f, 0.0f},
+				{0.0f, -1.0f, 0.0f},
+				{0.0f, -1.0f, 0.0f},
+				{0.0f, -1.0f, 0.0f},
+				// back 
+				{0.0f, 1.0f, 0.0f},
+				{0.0f, 1.0f, 0.0f},
+				{0.0f, 1.0f, 0.0f},
+				{0.0f, 1.0f, 0.0f},
+				// left 
+				{-1.0f, 0.0f, 0.0f},
+				{-1.0f, 0.0f, 0.0f},
+				{-1.0f, 0.0f, 0.0f},
+				{-1.0f, 0.0f, 0.0f},
+				// right 
+				{1.0f, 0.0f, 0.0f},
+				{1.0f, 0.0f, 0.0f},
+				{1.0f, 0.0f, 0.0f},
+				{1.0f, 0.0f, 0.0f}
+			};
+			constexpr Vec_2f texcoords[24] = { 
+				{1.0f, 0.0f},
+				{0.0f, 0.0f},
+				{0.0f, 1.0f},
+				{1.0f, 1.0f},
+				{0.0f, 0.0f},
+				{1.0f, 0.0f},
+				{1.0f, 1.0f},
+				{0.0f, 1.0f},
+				{0.0f, 0.0f},
+				{0.0f, 1.0f},
+				{1.0f, 0.0f},
+				{1.0f, 1.0f},
+				{0.0f, 0.0f},
+				{0.0f, 1.0f},
+				{1.0f, 0.0f},
+				{1.0f, 1.0f},
+				{0.0f, 0.0f},
+				{0.0f, 1.0f},
+				{1.0f, 0.0f},
+				{1.0f, 1.0f},
+				{0.0f, 0.0f},
+				{0.0f, 1.0f},
+				{1.0f, 0.0f},
+				{1.0f, 1.0f}
+			};
+			constexpr int32 triangles[36] = { 0, 3, 1, 2, 1, 3, // bottom
+											4, 5, 6, 4, 6, 7, // top
+											8, 10, 9, 11, 9, 10, // front
+											12, 13, 15, 12, 15, 14, // back
+											17, 19, 16, 16, 19, 18, // left
+											20, 22, 21, 21, 22, 23 }; // right
 
 			constexpr Vec_3f red = { 0.0f, 0.0f, 1.0f };
 			constexpr Vec_3f blue = { 1.0f, 0.0f, 0.0f };
@@ -453,14 +549,15 @@ int WinMain(
 			
 
 			Matrix_4x4 model_matrix;
+			//matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({1.0f, 0.0f, 0.0f}, c_deg_to_rad * -35.0f));
 			matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0000001f));
-			//matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({0.0f, 1.0f, 0.0f}, now.QuadPart * 0.00000001f));
+			//matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.00000001f));
 
 			Matrix_4x4 model_view_projection_matrix;
 			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
 
-			Vec_3f projected_vertices[8];
-			project_and_draw(vertices, texcoords, colours, projected_vertices, 8, triangles, 12, &model_view_projection_matrix, &texture);
+			Vec_3f projected_vertices[24];
+			project_and_draw(vertices, texcoords, colours, projected_vertices, 24, triangles, 12, &model_view_projection_matrix, &texture);
 			//project_and_draw(vertices, texcoords, colours, projected_vertices, 8, triangles + 12, 1, &model_view_projection_matrix);
 
 			// second intersecting cube
@@ -468,6 +565,7 @@ int WinMain(
 			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
 			project_and_draw(vertices, colours, projected_vertices, 8, triangles, 12, &model_view_projection_matrix);*/
 
+			// TODO measure this, bitblt might be faster, also could draw this with directdraw or something if it takes up too much of the frame
 			SetDIBitsToDevice(
 				dc,
 				0, 0,
