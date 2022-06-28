@@ -285,16 +285,27 @@ void project_and_draw(
 	}
 }
 
-uint8* read_file(const char* path)
+struct File
 {
-	HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	uint64 size;
+	uint8* data;
+};
+
+File read_file(const char* path)
+{
+	HANDLE file_handle = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
 	LARGE_INTEGER file_size;
-	GetFileSizeEx(file, &file_size);
-	uint8* bytes = new uint8[file_size.QuadPart];
+	GetFileSizeEx(file_handle, &file_size);
+	
+	File file = {};
+	file.size = file_size.QuadPart;
+	file.data = new uint8[file_size.QuadPart];
+
 	DWORD bytes_read;
-	const BOOL success = ReadFile(file, bytes, file_size.QuadPart, &bytes_read, nullptr);
+	const BOOL success = ReadFile(file_handle, file.data, file_size.QuadPart, &bytes_read, nullptr);
 	assert(success);
-	return bytes;
+
+	return file;
 }
 
 Texture texture_bmp(uint8* bmp_file)
@@ -317,6 +328,174 @@ Texture texture_bmp(uint8* bmp_file)
 	memcpy(texture.pixels, bmp_file + pixel_data_start, pixel_count * 3);
 
 	return texture;
+}
+
+static void obj_read_floats(uint8* data, float* out_floats, int32 float_count)
+{
+	for (int32 i = 0; i < float_count; ++i)
+	{
+		if (i > 0)
+		{
+			while (*data != ' ')
+			{
+				++data;
+			}
+			++data;
+		}
+
+		out_floats[i] = atof((const char*)data);
+	}
+}
+
+static uint8* obj_read_triangle_vertex(uint8* data, int32 out_vertex[3])
+{
+	const char* str = (const char*)data;
+
+	out_vertex[0] = atoi(str);
+
+	// see if we have more explicit verts
+	int32 current_vertex = 1;
+	while (current_vertex < 3)
+	{
+		if (*str == ' ' || *str == '\n') {
+			break;
+		}
+		else if (*str == '/')
+		{
+			++str;
+			out_vertex[current_vertex] = atoi(str);
+			++current_vertex;
+		}
+		++str;
+	}
+	++str;
+
+	// less than 3 specified so copy whatever the last one in the file was
+	while (current_vertex < 3)
+	{
+		out_vertex[current_vertex] = out_vertex[current_vertex - 1];
+	}
+
+	// return the start of the next triangle
+	return (uint8*)str;
+}
+
+static void obj_read_triangle(uint8* data, int32* in_out_unique_vertices, uint32* in_out_unique_vertex_count)
+{
+	int32 vertex[3];
+	for (int32 tri_vertex_i = 0; tri_vertex_i < 3; ++tri_vertex_i)
+	{
+		data = obj_read_triangle_vertex(data, vertex);
+		bool found = false;
+		for (int32 unique_vertex_i = 0; unique_vertex_i < *in_out_unique_vertex_count; ++unique_vertex_i)
+		{
+			int32 base = unique_vertex_i * 3;
+			if (in_out_unique_vertices[base] == vertex[0] &&
+				in_out_unique_vertices[base + 1] == vertex[1] &&
+				in_out_unique_vertices[base + 2] == vertex[2])
+			{
+				found = true;
+				break;
+			}
+		}
+		if (!found)
+		{
+			int32 base = *in_out_unique_vertex_count * 3;
+			in_out_unique_vertices[base] = vertex[0];
+			in_out_unique_vertices[base + 1] = vertex[1];
+			in_out_unique_vertices[base + 2] = vertex[2];
+			++(*in_out_unique_vertex_count);
+		}
+	}
+}
+
+void model_obj(uint8* obj_file, uint64 file_size)
+{
+	uint32 vertex_count = 0;
+	uint32 texcoord_count = 0;
+	uint32 normal_count = 0;
+	uint32 triangle_count = 0;
+
+	uint64 read_pos = 0;
+	while (read_pos < file_size)
+	{
+		if (obj_file[read_pos] == 'v') 
+		{
+			if (obj_file[read_pos + 1] == ' ')
+			{
+				++vertex_count;
+			}
+			else if (obj_file[read_pos + 1] == 't')
+			{
+				++texcoord_count;
+			}
+			else if (obj_file[read_pos + 1] == 'n')
+			{
+				++normal_count;
+			}
+		}
+		else if (obj_file[read_pos] == 'f')
+		{
+			++triangle_count;
+		}
+
+		while (read_pos < file_size && obj_file[read_pos] != '\n')
+		{
+			++read_pos;
+		}
+		++read_pos;
+	}
+
+	Vec_3f* vertices = new Vec_3f[vertex_count];
+	Vec_2f* texcoords = new Vec_2f[texcoord_count];
+	Vec_3f* normals = new Vec_3f[normal_count];
+	int32* unique_vertices = new int32[triangle_count * 3 * 3]; // the max unique verts we could have is all 3 per triangle
+
+	uint32 next_vertex = 0;
+	uint32 next_texcoord = 0;
+	uint32 next_normal = 0;
+	uint32 unique_vertex_count = 0;
+	
+	read_pos = 0;
+	while (read_pos < file_size)
+	{
+		if (obj_file[read_pos] == 'v')
+		{
+			if (obj_file[read_pos + 1] == ' ')
+			{
+				read_pos += 2;
+
+				obj_read_floats(obj_file + read_pos, vertices[next_vertex].v, 3);
+				++next_vertex;
+			}
+			else if (obj_file[read_pos + 1] == 't')
+			{
+				read_pos += 3;
+
+				obj_read_floats(obj_file + read_pos, texcoords[next_texcoord].v, 2);
+				++next_texcoord;
+			}
+			else if (obj_file[read_pos + 1] == 'n')
+			{
+				read_pos += 3;
+
+				obj_read_floats(obj_file + read_pos, normals[next_normal].v, 3);
+				++next_normal;
+			}
+		}
+		else if (obj_file[read_pos] == 'f')
+		{
+			read_pos += 2;
+
+			obj_read_triangle(obj_file + read_pos, unique_vertices, &unique_vertex_count);
+		}
+
+		while (read_pos < file_size && obj_file[read_pos] != '\n')
+		{
+			++read_pos;
+		}
+		++read_pos;
+	}
 }
 
 LRESULT wnd_proc(
@@ -374,9 +553,15 @@ int WinMain(
 	ShowWindow(window, show_cmd);
 
 
-	uint8* texture_file = read_file("data/models/Textures/stones.bmp");
-	const Texture texture = texture_bmp(texture_file);
-	delete[] texture_file;
+	File obj_file = read_file("data/models/column.obj");
+	model_obj(obj_file.data, obj_file.size);
+	delete[] obj_file.data;
+	obj_file = {};
+
+	File texture_file = read_file("data/models/Textures/stones.bmp");
+	const Texture texture = texture_bmp(texture_file.data);
+	delete[] texture_file.data;
+	texture_file = {};
 
 
 	LARGE_INTEGER clock_freq;
