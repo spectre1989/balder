@@ -84,7 +84,6 @@ static void draw_line(Vec_3f p1, Vec_3f p2) // TODO more efficient algo impl
 static void triangle_edge(
 	Vec_3f a, Vec_3f b,
 	Vec_2f a_tex, Vec_2f b_tex,
-	Vec_3f a_col, Vec_3f b_col,
 	int32* out_min_x, int32* out_max_x,
 	float32* out_min_depth, float32* out_max_depth,
 	Vec_2f* out_min_texcoord, Vec_2f* out_max_texcoord)
@@ -168,9 +167,8 @@ static void triangle_edge(
 	}
 }
 
-static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], const Vec_3f colour[3], const Texture* texture)
+static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], const Texture* texture)
 {
-	OutputDebugStringA("draw_triangle\n");
 	// High level algorithm is to plot the 3 lines describing the edges, use
 	// this to figure out per row (y) what the min/max x value is, and 
 	// interpolating any attributes (e.g. normal, texcoord, etc) along the edge.
@@ -195,9 +193,9 @@ static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], co
 		max_x[y] = -1;
 	}
 
-	triangle_edge(position[0], position[1], texcoord[0], texcoord[1], colour[0], colour[1], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord);
-	triangle_edge(position[1], position[2], texcoord[1], texcoord[2], colour[1], colour[2], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord);
-	triangle_edge(position[2], position[0], texcoord[2], texcoord[0], colour[2], colour[0], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord);
+	triangle_edge(position[0], position[1], texcoord[0], texcoord[1], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord);
+	triangle_edge(position[1], position[2], texcoord[1], texcoord[2], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord);
+	triangle_edge(position[2], position[0], texcoord[2], texcoord[0], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord);
 	
 	for (int32 y = int32_max(y_min, 0); y <= y_max; ++y)
 	{
@@ -229,7 +227,6 @@ static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], co
 void project_and_draw(
 	const Vec_3f* vertices, 
 	const Vec_2f* texcoords, 
-	const Vec_3f* colours, 
 	Vec_3f* projected_vertices, 
 	const int32 vertex_count, 
 	const int32* triangles, 
@@ -276,7 +273,7 @@ void project_and_draw(
 				// at least one vertex is visible
 				if (vec_3f_cross(vec_3f_sub(pos[0], pos[1]), vec_3f_sub(pos[0], pos[2])).z > 0.0f)
 				{
-					draw_triangle(pos, tex, colours, texture);
+					draw_triangle(pos, tex, texture);
 				}
 
 				break;
@@ -289,6 +286,16 @@ struct File
 {
 	uint64 size;
 	uint8* data;
+};
+
+struct Model
+{
+	Vec_3f* vertices;
+	Vec_2f* texcoords;
+	Vec_3f* normals;
+	int32* triangles;
+	uint32 vertex_count;
+	uint32 triangle_count;
 };
 
 File read_file(const char* path)
@@ -380,13 +387,13 @@ static uint8* obj_read_triangle_vertex(uint8* data, int32 out_vertex[3])
 	return (uint8*)str;
 }
 
-static void obj_read_triangle(uint8* data, int32* in_out_unique_vertices, uint32* in_out_unique_vertex_count)
+static void obj_read_triangle(uint8* data, int32* in_out_unique_vertices, uint32* in_out_unique_vertex_count, int32 triangle[3])
 {
 	int32 vertex[3];
 	for (int32 tri_vertex_i = 0; tri_vertex_i < 3; ++tri_vertex_i)
 	{
 		data = obj_read_triangle_vertex(data, vertex);
-		bool found = false;
+		triangle[tri_vertex_i] = -1;
 		for (int32 unique_vertex_i = 0; unique_vertex_i < *in_out_unique_vertex_count; ++unique_vertex_i)
 		{
 			int32 base = unique_vertex_i * 3;
@@ -394,22 +401,23 @@ static void obj_read_triangle(uint8* data, int32* in_out_unique_vertices, uint32
 				in_out_unique_vertices[base + 1] == vertex[1] &&
 				in_out_unique_vertices[base + 2] == vertex[2])
 			{
-				found = true;
+				triangle[tri_vertex_i] = unique_vertex_i;
 				break;
 			}
 		}
-		if (!found)
+		if (triangle[tri_vertex_i] == -1)
 		{
 			int32 base = *in_out_unique_vertex_count * 3;
 			in_out_unique_vertices[base] = vertex[0];
 			in_out_unique_vertices[base + 1] = vertex[1];
 			in_out_unique_vertices[base + 2] = vertex[2];
+			triangle[tri_vertex_i] = *in_out_unique_vertex_count;
 			++(*in_out_unique_vertex_count);
 		}
 	}
 }
 
-void model_obj(uint8* obj_file, uint64 file_size)
+Model model_obj(uint8* obj_file, uint64 file_size)
 {
 	uint32 vertex_count = 0;
 	uint32 texcoord_count = 0;
@@ -451,10 +459,15 @@ void model_obj(uint8* obj_file, uint64 file_size)
 	Vec_3f* normals = new Vec_3f[normal_count];
 	int32* unique_vertices = new int32[triangle_count * 3 * 3]; // the max unique verts we could have is all 3 per triangle
 
+	Model model = {};
+	model.triangle_count = triangle_count;
+	model.triangles = new int32[triangle_count * 3];
+
 	uint32 next_vertex = 0;
 	uint32 next_texcoord = 0;
 	uint32 next_normal = 0;
 	uint32 unique_vertex_count = 0;
+	uint32 next_triangle = 0;
 	
 	read_pos = 0;
 	while (read_pos < file_size)
@@ -487,7 +500,8 @@ void model_obj(uint8* obj_file, uint64 file_size)
 		{
 			read_pos += 2;
 
-			obj_read_triangle(obj_file + read_pos, unique_vertices, &unique_vertex_count);
+			obj_read_triangle(obj_file + read_pos, unique_vertices, &unique_vertex_count, &model.triangles[next_triangle]);
+			next_triangle += 3;
 		}
 
 		while (read_pos < file_size && obj_file[read_pos] != '\n')
@@ -496,6 +510,25 @@ void model_obj(uint8* obj_file, uint64 file_size)
 		}
 		++read_pos;
 	}
+
+	model.vertex_count = unique_vertex_count;
+	model.vertices = new Vec_3f[unique_vertex_count];
+	model.texcoords = new Vec_2f[unique_vertex_count];
+	model.normals = new Vec_3f[unique_vertex_count];
+
+	for (int32 i = 0; i < unique_vertex_count; ++i)
+	{
+		model.vertices[i] = vertices[unique_vertices[i * 3]];
+		model.texcoords[i] = texcoords[unique_vertices[(i * 3) + 1]];
+		model.normals[i] = normals[unique_vertices[(i * 3) + 2]];
+	}
+
+	delete[] vertices;
+	delete[] texcoords;
+	delete[] normals;
+	delete[] unique_vertices;
+
+	return model;
 }
 
 LRESULT wnd_proc(
@@ -554,9 +587,10 @@ int WinMain(
 
 
 	File obj_file = read_file("data/models/column.obj");
-	model_obj(obj_file.data, obj_file.size);
+	Model column_model = model_obj(obj_file.data, obj_file.size);
 	delete[] obj_file.data;
 	obj_file = {};
+	Vec_3f* projected_vertices = new Vec_3f[column_model.vertex_count];
 
 	File texture_file = read_file("data/models/Textures/stones.bmp");
 	const Texture texture = texture_bmp(texture_file.data);
@@ -707,11 +741,6 @@ int WinMain(
 											12, 13, 15, 12, 15, 14, // back
 											17, 19, 16, 16, 19, 18, // left
 											20, 22, 21, 21, 22, 23 }; // right
-
-			constexpr Vec_3f red = { 0.0f, 0.0f, 1.0f };
-			constexpr Vec_3f blue = { 1.0f, 0.0f, 0.0f };
-			constexpr Vec_3f green = { 0.0f, 1.0f, 0.0f };
-			constexpr Vec_3f colours[3] = { red, blue, green };
 			
 			constexpr float32 c_fov_y = 60.0f * c_deg_to_rad;
 			constexpr float32 c_near = 0.1f;
@@ -735,15 +764,23 @@ int WinMain(
 
 			Matrix_4x4 model_matrix;
 			//matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({1.0f, 0.0f, 0.0f}, c_deg_to_rad * -35.0f));
-			matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0000001f));
+			matrix_4x4_transform(&model_matrix, { 0.0f, 50.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0000001f));
 			//matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.00000001f));
 
 			Matrix_4x4 model_view_projection_matrix;
 			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
 
-			Vec_3f projected_vertices[24];
-			project_and_draw(vertices, texcoords, colours, projected_vertices, 24, triangles, 12, &model_view_projection_matrix, &texture);
-			//project_and_draw(vertices, texcoords, colours, projected_vertices, 8, triangles + 12, 1, &model_view_projection_matrix);
+			/*Vec_3f projected_vertices[24];
+			project_and_draw(vertices, texcoords, projected_vertices, 24, triangles, 12, &model_view_projection_matrix, &texture);*/
+			project_and_draw(
+				column_model.vertices,
+				column_model.texcoords,
+				projected_vertices,
+				column_model.vertex_count,
+				column_model.triangles,
+				column_model.triangle_count,
+				&model_view_projection_matrix,
+				&texture);
 
 			// second intersecting cube
 			/*matrix_4x4_transform(&model_matrix, {0.0f, 2.0f, 0.0f}, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.00000015f));
