@@ -13,7 +13,13 @@ static float32 depth_buffer[c_frame_width * c_frame_height * 3];
 struct Texture {
 	uint32 width;
 	uint32 height;
-	uint8* pixels;
+	const uint8* pixels;
+};
+
+struct Draw_Call {
+	uint32 triangle_start;
+	uint32 triangle_count;
+	const Texture* texture;
 };
 
 
@@ -167,6 +173,15 @@ static void triangle_edge(
 	}
 }
 
+static float32 wrap_texcoord(float32 f)
+{
+	if (f < 0)
+	{
+		return 1.0f - fmodf(fabsf(f), 1.0f);
+	}
+	return fmodf(f, 1.0f);
+}
+
 static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], const Texture* texture)
 {
 	// High level algorithm is to plot the 3 lines describing the edges, use
@@ -211,6 +226,8 @@ static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], co
 				depth_buffer[offset] = depth;
 
 				Vec_2f texcoord = vec_2f_lerp(min_texcoord[y], max_texcoord[y], t);
+				texcoord.x = wrap_texcoord(texcoord.x);
+				texcoord.y = wrap_texcoord(texcoord.y);
 				const int32 tex_pixel_x = int32_clamp(0, texture->width - 1, (int32)float32_floor(texcoord.x * texture->width));
 				const int32 tex_pixel_y = int32_clamp(0, texture->height - 1, (int32)float32_floor(texcoord.y * texture->height));
 				const int32 tex_pixel_offset = ((tex_pixel_y * texture->width) + tex_pixel_x) * 3;
@@ -230,9 +247,9 @@ void project_and_draw(
 	Vec_3f* projected_vertices, 
 	const int32 vertex_count, 
 	const int32* triangles, 
-	const int32 triangle_count, 
-	const Matrix_4x4* projection_matrix,
-	const Texture* texture)
+	const Draw_Call* draw_calls,
+	uint32 draw_call_count,
+	const Matrix_4x4* projection_matrix)
 {
 	for (int i = 0; i < vertex_count; ++i)
 	{
@@ -249,34 +266,37 @@ void project_and_draw(
 
 	Vec_3f pos[3];
 	Vec_2f tex[3];
-	for (int i = 0; i < triangle_count; ++i)
+	for (int draw_call_i = 0; draw_call_i < draw_call_count; ++draw_call_i)
 	{
-		const int base = i * 3;
-
-		pos[0] = projected_vertices[triangles[base]];
-		pos[1] = projected_vertices[triangles[base + 1]];
-		pos[2] = projected_vertices[triangles[base + 2]];
-
-		tex[0] = texcoords[triangles[base]];
-		tex[1] = texcoords[triangles[base + 1]];
-		tex[2] = texcoords[triangles[base + 2]];
-
-		// TODO is it quicker to do this before projection by seeing if
-		// any of the vertices lie on the positive side of the planes
-		// defining the view frustum
-		for (int i = 0; i < 3; ++i)
+		for (int i = 0; i < draw_calls[draw_call_i].triangle_count; ++i)
 		{
-			// TODO depth based culling too
-			if (pos[i].x >= 0.0f && pos[i].x < c_frame_width &&
-				pos[i].y >= 0.0f && pos[i].y < c_frame_height)
-			{
-				// at least one vertex is visible
-				if (vec_3f_cross(vec_3f_sub(pos[0], pos[1]), vec_3f_sub(pos[0], pos[2])).z > 0.0f)
-				{
-					draw_triangle(pos, tex, texture);
-				}
+			const int base = (draw_calls[draw_call_i].triangle_start + i) * 3;
 
-				break;
+			pos[0] = projected_vertices[triangles[base]];
+			pos[1] = projected_vertices[triangles[base + 1]];
+			pos[2] = projected_vertices[triangles[base + 2]];
+
+			tex[0] = texcoords[triangles[base]];
+			tex[1] = texcoords[triangles[base + 1]];
+			tex[2] = texcoords[triangles[base + 2]];
+
+			// TODO is it quicker to do this before projection by seeing if
+			// any of the vertices lie on the positive side of the planes
+			// defining the view frustum
+			for (int i = 0; i < 3; ++i)
+			{
+				// TODO depth based culling too
+				if (pos[i].x >= 0.0f && pos[i].x < c_frame_width &&
+					pos[i].y >= 0.0f && pos[i].y < c_frame_height)
+				{
+					// at least one vertex is visible
+					if (vec_3f_cross(vec_3f_sub(pos[0], pos[1]), vec_3f_sub(pos[0], pos[2])).z > 0.0f)
+					{
+						draw_triangle(pos, tex, draw_calls[draw_call_i].texture);
+					}
+
+					break;
+				}
 			}
 		}
 	}
@@ -294,9 +314,46 @@ struct Model
 	Vec_2f* texcoords;
 	Vec_3f* normals;
 	int32* triangles;
+	Draw_Call* draw_calls;
 	uint32 vertex_count;
-	uint32 triangle_count;
+	uint32 draw_call_count;
 };
+
+bool string_starts_with(const char* str, const char* search)
+{
+	while (*search)
+	{
+		if (*search != *str)
+		{
+			return false;
+		}
+
+		++str;
+		++search;
+	}
+
+	return true;
+}
+
+int32 string_copy(char* dst, int32 dst_size, const char* src)
+{
+	char* dst_iter = dst;
+	while (dst_size > 1 && *src)
+	{
+		*dst_iter = *src;
+		--dst_size;
+		++dst_iter;
+		++src;
+	}
+	*dst_iter = 0;
+
+	return dst_iter - dst;
+}
+
+bool char_is_whitespace(char c)
+{
+	return c == ' ' || c == '\r' || c == '\n';
+}
 
 File read_file(const char* path)
 {
@@ -328,16 +385,18 @@ Texture texture_bmp(uint8* bmp_file)
 	texture.height = *((int32*)(bmp_file + 22));
 
 	const uint32 pixel_count = texture.width * texture.height;
-	texture.pixels = new uint8[pixel_count * 3];
-
+	uint8* pixels = new uint8[pixel_count * 3];
+	
 	const uint16 bits_per_pixel = *((uint16*)(bmp_file + 28));
+	assert(bits_per_pixel == 24);
 
-	memcpy(texture.pixels, bmp_file + pixel_data_start, pixel_count * 3);
+	memcpy(pixels, bmp_file + pixel_data_start, pixel_count * 3);
+	texture.pixels = pixels;
 
 	return texture;
 }
 
-static void obj_read_floats(uint8* data, float* out_floats, int32 float_count)
+static void obj_read_floats(const uint8* data, float* out_floats, int32 float_count)
 {
 	for (int32 i = 0; i < float_count; ++i)
 	{
@@ -354,7 +413,7 @@ static void obj_read_floats(uint8* data, float* out_floats, int32 float_count)
 	}
 }
 
-static uint8* obj_read_triangle_vertex(uint8* data, int32 out_vertex[3])
+static uint8* obj_read_triangle_vertex(const uint8* data, int32 out_vertex[3])
 {
 	const char* str = (const char*)data;
 
@@ -387,7 +446,7 @@ static uint8* obj_read_triangle_vertex(uint8* data, int32 out_vertex[3])
 	return (uint8*)str;
 }
 
-static void obj_read_triangle(uint8* data, int32* in_out_unique_vertices, uint32* in_out_unique_vertex_count, int32 triangle[3])
+static void obj_read_triangle(const uint8* data, int32* in_out_unique_vertices, uint32* in_out_unique_vertex_count, int32 triangle[3])
 {
 	int32 vertex[3];
 	for (int32 tri_vertex_i = 0; tri_vertex_i < 3; ++tri_vertex_i)
@@ -417,7 +476,33 @@ static void obj_read_triangle(uint8* data, int32* in_out_unique_vertices, uint32
 	}
 }
 
-Model model_obj(uint8* obj_file, uint64 file_size)
+bool string_read_line(const char** str)
+{
+
+}
+
+void read_material_lib(const char* path, Texture** out_textures, uint32* out_texture_count)
+{
+	File file = read_file(path);
+
+	const char* file_iter = (const char*)file.data;
+	while (true)
+	{
+		if (string_starts_with(file_iter, "newmtl"))
+		{
+
+		}
+
+		if (!string_read_line(&file_iter))
+		{
+			break;
+		}
+	}
+
+	delete[] file.data;
+}
+
+Model model_obj(const uint8* obj_file, uint64 file_size, const char* containing_folder)
 {
 	uint32 vertex_count = 0;
 	uint32 texcoord_count = 0;
@@ -446,6 +531,24 @@ Model model_obj(uint8* obj_file, uint64 file_size)
 		{
 			++triangle_count;
 		}
+		else if (string_starts_with((const char*)& obj_file[read_pos], "mtllib"))
+		{
+			char material_lib_path[512];
+			int32 len = string_copy(material_lib_path, sizeof(material_lib_path), containing_folder);
+			len += string_copy(material_lib_path + len, sizeof(material_lib_path) - len, "/");
+			
+			const uint8* iter = obj_file + read_pos + 7;
+			while (!char_is_whitespace(*iter))
+			{
+				material_lib_path[len] = *iter;
+				++len;
+				++iter;
+				assert(len < sizeof(material_lib_path));
+			}
+			material_lib_path[len] = 0;
+
+			materials = read_material_lib(material_lib_path);
+		}
 
 		while (read_pos < file_size && obj_file[read_pos] != '\n')
 		{
@@ -460,7 +563,6 @@ Model model_obj(uint8* obj_file, uint64 file_size)
 	int32* unique_vertices = new int32[triangle_count * 3 * 3]; // the max unique verts we could have is all 3 per triangle
 
 	Model model = {};
-	model.triangle_count = triangle_count;
 	model.triangles = new int32[triangle_count * 3];
 
 	uint32 next_vertex = 0;
@@ -518,9 +620,9 @@ Model model_obj(uint8* obj_file, uint64 file_size)
 
 	for (int32 i = 0; i < unique_vertex_count; ++i)
 	{
-		model.vertices[i] = vertices[unique_vertices[i * 3]];
-		model.texcoords[i] = texcoords[unique_vertices[(i * 3) + 1]];
-		model.normals[i] = normals[unique_vertices[(i * 3) + 2]];
+		model.vertices[i] = vertices[unique_vertices[i * 3] - 1];
+		model.texcoords[i] = texcoords[unique_vertices[(i * 3) + 1] - 1];
+		model.normals[i] = normals[unique_vertices[(i * 3) + 2] - 1];
 	}
 
 	delete[] vertices;
@@ -585,18 +687,21 @@ int WinMain(
 
 	ShowWindow(window, show_cmd);
 
-
 	File obj_file = read_file("data/models/column.obj");
-	Model column_model = model_obj(obj_file.data, obj_file.size);
+	Model column_model = model_obj(obj_file.data, obj_file.size, "data/models");
 	delete[] obj_file.data;
 	obj_file = {};
 	Vec_3f* projected_vertices = new Vec_3f[column_model.vertex_count];
 
 	File texture_file = read_file("data/models/Textures/stones.bmp");
-	const Texture texture = texture_bmp(texture_file.data);
+	const Texture stones_texture = texture_bmp(texture_file.data);
 	delete[] texture_file.data;
 	texture_file = {};
 
+	texture_file = read_file("data/models/Textures/bricks.bmp");
+	const Texture bricks_texture = texture_bmp(texture_file.data);
+	delete[] texture_file.data;
+	texture_file = {};
 
 	LARGE_INTEGER clock_freq;
 	QueryPerformanceFrequency(&clock_freq);
@@ -643,104 +748,6 @@ int WinMain(
 			bitmap_info.bmiHeader.biPlanes = 1;
 			bitmap_info.bmiHeader.biBitCount = 24;
 			bitmap_info.bmiHeader.biCompression = BI_RGB;
-
-			// vertex/index buffers
-			constexpr Vec_3f vertices[24] = {
-				// bottom
-				{-0.5f, -0.5f, -0.5f},
-				{0.5f, -0.5f, -0.5f}, 
-				{0.5f, 0.5f, -0.5f}, 
-				{-0.5f, 0.5f, -0.5f},
-				// top
-				{-0.5f, -0.5f, 0.5f},
-				{0.5f, -0.5f, 0.5f}, 
-				{0.5f, 0.5f, 0.5f},
-				{ -0.5f, 0.5f, 0.5f },
-				// front 
-				{-0.5f, -0.5f, -0.5f},
-				{-0.5f, -0.5f, 0.5f},
-				{0.5f, -0.5f, -0.5f},
-				{0.5f, -0.5f, 0.5f},
-				// back 
-				{-0.5f, 0.5f, -0.5f},
-				{-0.5f, 0.5f, 0.5f},
-				{0.5f, 0.5f, -0.5f},
-				{ 0.5f, 0.5f, 0.5f },
-				// left 
-				{-0.5f, -0.5f, -0.5f},
-				{-0.5f, -0.5f, 0.5f},
-				{-0.5f, 0.5f, -0.5f},
-				{-0.5f, 0.5f, 0.5f},
-				// right 
-				{0.5f, -0.5f, -0.5f},
-				{0.5f, -0.5f, 0.5f},
-				{0.5f, 0.5f, -0.5f},
-				{0.5f, 0.5f, 0.5f}
-			};
-			constexpr Vec_3f normals[24] = {
-				// bottom
-				{0.0f, 0.0f, -1.0f},
-				{0.0f, 0.0f, -1.0f},
-				{0.0f, 0.0f, -1.0f},
-				{0.0f, 0.0f, -1.0f},
-				// top
-				{0.0f, 0.0f, 1.0f},
-				{0.0f, 0.0f, 1.0f},
-				{0.0f, 0.0f, 1.0f},
-				{0.0f, 0.0f, 1.0f},
-				// front 
-				{0.0f, -1.0f, 0.0f},
-				{0.0f, -1.0f, 0.0f},
-				{0.0f, -1.0f, 0.0f},
-				{0.0f, -1.0f, 0.0f},
-				// back 
-				{0.0f, 1.0f, 0.0f},
-				{0.0f, 1.0f, 0.0f},
-				{0.0f, 1.0f, 0.0f},
-				{0.0f, 1.0f, 0.0f},
-				// left 
-				{-1.0f, 0.0f, 0.0f},
-				{-1.0f, 0.0f, 0.0f},
-				{-1.0f, 0.0f, 0.0f},
-				{-1.0f, 0.0f, 0.0f},
-				// right 
-				{1.0f, 0.0f, 0.0f},
-				{1.0f, 0.0f, 0.0f},
-				{1.0f, 0.0f, 0.0f},
-				{1.0f, 0.0f, 0.0f}
-			};
-			constexpr Vec_2f texcoords[24] = { 
-				{1.0f, 0.0f},
-				{0.0f, 0.0f},
-				{0.0f, 1.0f},
-				{1.0f, 1.0f},
-				{0.0f, 0.0f},
-				{1.0f, 0.0f},
-				{1.0f, 1.0f},
-				{0.0f, 1.0f},
-				{0.0f, 0.0f},
-				{0.0f, 1.0f},
-				{1.0f, 0.0f},
-				{1.0f, 1.0f},
-				{0.0f, 0.0f},
-				{0.0f, 1.0f},
-				{1.0f, 0.0f},
-				{1.0f, 1.0f},
-				{0.0f, 0.0f},
-				{0.0f, 1.0f},
-				{1.0f, 0.0f},
-				{1.0f, 1.0f},
-				{0.0f, 0.0f},
-				{0.0f, 1.0f},
-				{1.0f, 0.0f},
-				{1.0f, 1.0f}
-			};
-			constexpr int32 triangles[36] = { 0, 3, 1, 2, 1, 3, // bottom
-											4, 5, 6, 4, 6, 7, // top
-											8, 10, 9, 11, 9, 10, // front
-											12, 13, 15, 12, 15, 14, // back
-											17, 19, 16, 16, 19, 18, // left
-											20, 22, 21, 21, 22, 23 }; // right
 			
 			constexpr float32 c_fov_y = 60.0f * c_deg_to_rad;
 			constexpr float32 c_near = 0.1f;
@@ -760,27 +767,24 @@ int WinMain(
 			{
 				depth_buffer[i] = c_far;
 			}
-			
 
+			//draw_cube(&view_projection_matrix, now, &stones_texture);
+			
 			Matrix_4x4 model_matrix;
-			//matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({1.0f, 0.0f, 0.0f}, c_deg_to_rad * -35.0f));
-			matrix_4x4_transform(&model_matrix, { 0.0f, 50.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0000001f));
-			//matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.00000001f));
+			matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.0000001f));
 
 			Matrix_4x4 model_view_projection_matrix;
 			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
 
-			/*Vec_3f projected_vertices[24];
-			project_and_draw(vertices, texcoords, projected_vertices, 24, triangles, 12, &model_view_projection_matrix, &texture);*/
 			project_and_draw(
 				column_model.vertices,
 				column_model.texcoords,
 				projected_vertices,
 				column_model.vertex_count,
 				column_model.triangles,
-				column_model.triangle_count,
-				&model_view_projection_matrix,
-				&texture);
+				column_model.draw_calls,
+				column_model.draw_call_count,
+				&model_view_projection_matrix);
 
 			// second intersecting cube
 			/*matrix_4x4_transform(&model_matrix, {0.0f, 2.0f, 0.0f}, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.00000015f));
@@ -815,4 +819,118 @@ int WinMain(
 	}
 
 	return int(msg.wParam);
+}
+
+void draw_cube(const Matrix_4x4* view_projection_matrix, LARGE_INTEGER now, const Texture* texture)
+{
+	// vertex/index buffers
+	constexpr Vec_3f vertices[24] = {
+		// bottom
+		{-0.5f, -0.5f, -0.5f},
+		{0.5f, -0.5f, -0.5f},
+		{0.5f, 0.5f, -0.5f},
+		{-0.5f, 0.5f, -0.5f},
+		// top
+		{-0.5f, -0.5f, 0.5f},
+		{0.5f, -0.5f, 0.5f},
+		{0.5f, 0.5f, 0.5f},
+		{ -0.5f, 0.5f, 0.5f },
+		// front 
+		{-0.5f, -0.5f, -0.5f},
+		{-0.5f, -0.5f, 0.5f},
+		{0.5f, -0.5f, -0.5f},
+		{0.5f, -0.5f, 0.5f},
+		// back 
+		{-0.5f, 0.5f, -0.5f},
+		{-0.5f, 0.5f, 0.5f},
+		{0.5f, 0.5f, -0.5f},
+		{ 0.5f, 0.5f, 0.5f },
+		// left 
+		{-0.5f, -0.5f, -0.5f},
+		{-0.5f, -0.5f, 0.5f},
+		{-0.5f, 0.5f, -0.5f},
+		{-0.5f, 0.5f, 0.5f},
+		// right 
+		{0.5f, -0.5f, -0.5f},
+		{0.5f, -0.5f, 0.5f},
+		{0.5f, 0.5f, -0.5f},
+		{0.5f, 0.5f, 0.5f}
+	};
+	constexpr Vec_3f normals[24] = {
+		// bottom
+		{0.0f, 0.0f, -1.0f},
+		{0.0f, 0.0f, -1.0f},
+		{0.0f, 0.0f, -1.0f},
+		{0.0f, 0.0f, -1.0f},
+		// top
+		{0.0f, 0.0f, 1.0f},
+		{0.0f, 0.0f, 1.0f},
+		{0.0f, 0.0f, 1.0f},
+		{0.0f, 0.0f, 1.0f},
+		// front 
+		{0.0f, -1.0f, 0.0f},
+		{0.0f, -1.0f, 0.0f},
+		{0.0f, -1.0f, 0.0f},
+		{0.0f, -1.0f, 0.0f},
+		// back 
+		{0.0f, 1.0f, 0.0f},
+		{0.0f, 1.0f, 0.0f},
+		{0.0f, 1.0f, 0.0f},
+		{0.0f, 1.0f, 0.0f},
+		// left 
+		{-1.0f, 0.0f, 0.0f},
+		{-1.0f, 0.0f, 0.0f},
+		{-1.0f, 0.0f, 0.0f},
+		{-1.0f, 0.0f, 0.0f},
+		// right 
+		{1.0f, 0.0f, 0.0f},
+		{1.0f, 0.0f, 0.0f},
+		{1.0f, 0.0f, 0.0f},
+		{1.0f, 0.0f, 0.0f}
+	};
+	constexpr Vec_2f texcoords[24] = {
+		{1.0f, 0.0f},
+		{0.0f, 0.0f},
+		{0.0f, 1.0f},
+		{1.0f, 1.0f},
+		{0.0f, 0.0f},
+		{1.0f, 0.0f},
+		{1.0f, 1.0f},
+		{0.0f, 1.0f},
+		{0.0f, 0.0f},
+		{0.0f, 1.0f},
+		{1.0f, 0.0f},
+		{1.0f, 1.0f},
+		{0.0f, 0.0f},
+		{0.0f, 1.0f},
+		{1.0f, 0.0f},
+		{1.0f, 1.0f},
+		{0.0f, 0.0f},
+		{0.0f, 1.0f},
+		{1.0f, 0.0f},
+		{1.0f, 1.0f},
+		{0.0f, 0.0f},
+		{0.0f, 1.0f},
+		{1.0f, 0.0f},
+		{1.0f, 1.0f}
+	};
+	constexpr int32 triangles[36] = { 0, 3, 1, 2, 1, 3, // bottom
+									4, 5, 6, 4, 6, 7, // top
+									8, 10, 9, 11, 9, 10, // front
+									12, 13, 15, 12, 15, 14, // back
+									17, 19, 16, 16, 19, 18, // left
+									20, 22, 21, 21, 22, 23 }; // right
+
+	Matrix_4x4 model_matrix;
+	matrix_4x4_transform(&model_matrix, { 0.0f, 2.0f, 0.0f }, quat_angle_axis({ 0.0f, 0.0f, 1.0f }, now.QuadPart * 0.0000001f));
+
+	Matrix_4x4 model_view_projection_matrix;
+	matrix_4x4_mul(&model_view_projection_matrix, view_projection_matrix, &model_matrix);
+
+	Vec_3f projected_vertices[24];
+	Draw_Call draw_call = {};
+	draw_call.triangle_start = 0;
+	draw_call.triangle_count = 12;
+	draw_call.texture = texture;
+	project_and_draw(vertices, texcoords, projected_vertices, 24, triangles, &draw_call, 1, &model_view_projection_matrix);
 }
