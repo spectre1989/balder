@@ -396,7 +396,7 @@ Texture texture_bmp(uint8* bmp_file)
 	return texture;
 }
 
-static void obj_read_floats(const uint8* data, float* out_floats, int32 float_count)
+static void obj_read_floats(const char* data, float* out_floats, int32 float_count)
 {
 	for (int32 i = 0; i < float_count; ++i)
 	{
@@ -409,13 +409,13 @@ static void obj_read_floats(const uint8* data, float* out_floats, int32 float_co
 			++data;
 		}
 
-		out_floats[i] = atof((const char*)data);
+		out_floats[i] = atof(data);
 	}
 }
 
-static uint8* obj_read_triangle_vertex(const uint8* data, int32 out_vertex[3])
+static const char* obj_read_triangle_vertex(const char* data, int32 out_vertex[3])
 {
-	const char* str = (const char*)data;
+	const char* str = data;
 
 	out_vertex[0] = atoi(str);
 
@@ -443,10 +443,10 @@ static uint8* obj_read_triangle_vertex(const uint8* data, int32 out_vertex[3])
 	}
 
 	// return the start of the next triangle
-	return (uint8*)str;
+	return str;
 }
 
-static void obj_read_triangle(const uint8* data, int32* in_out_unique_vertices, uint32* in_out_unique_vertex_count, int32 triangle[3])
+static void obj_read_triangle(const char* data, int32* in_out_unique_vertices, uint32* in_out_unique_vertex_count, int32 triangle[3])
 {
 	int32 vertex[3];
 	for (int32 tri_vertex_i = 0; tri_vertex_i < 3; ++tri_vertex_i)
@@ -478,19 +478,99 @@ static void obj_read_triangle(const uint8* data, int32* in_out_unique_vertices, 
 
 bool string_read_line(const char** str)
 {
+	const char* iter = *str;
+	while (true)
+	{
+		if (!*iter)
+		{
+			return false;
+		}
 
+		if (*iter == '\n')
+		{
+			++iter;
+			*str = iter;
+			return true;
+		}
+	}
 }
 
-void read_material_lib(const char* path, Texture** out_textures, uint32* out_texture_count)
+void string_copy_substring(char* dst, const char* src, uint32 count)
+{
+	while (count)
+	{
+		*dst = *src;
+		++dst;
+		++src;
+		--count;
+	}
+	*dst = 0;
+}
+
+struct Material
+{
+	const char* name;
+	const char* texture_path;
+};
+
+void read_material_lib(const char* path, Material** out_materials, uint32* out_material_count)
 {
 	File file = read_file(path);
+
+	uint32 material_count = 0;
 
 	const char* file_iter = (const char*)file.data;
 	while (true)
 	{
 		if (string_starts_with(file_iter, "newmtl"))
 		{
+			++material_count;
+		}
 
+		if (!string_read_line(&file_iter))
+		{
+			break;
+		}
+	}
+
+	Material* materials = new Material[material_count];
+	uint32 next_material = 0;
+	file_iter = (const char*)file.data;
+	while (true)
+	{
+		if (string_starts_with(file_iter, "newmtl"))
+		{
+			const char* name_start = file_iter + 7;
+			const char* name_end = name_start;
+			while (!char_is_whitespace(*name_end))
+			{
+				++name_end;
+			}
+			
+			const uint32 name_len = name_end - name_start;
+			char* name = new char[name_len];
+			string_copy_substring(name, name_start, name_len);
+
+			materials[next_material].name = name;
+
+			// NOTE don't inc next_material yet, need to get texture path first!
+		}
+		else if (string_starts_with(file_iter, "map_Kd"))
+		{
+			const char* texture_start = file_iter + 7;
+			const char* texture_end = texture_start;
+			while (!char_is_whitespace(*texture_end))
+			{
+				++texture_end;
+			}
+
+			const uint32 texture_len = texture_end - texture_start;
+			char* texture_path = new char[texture_len];
+			string_copy_substring(texture_path, texture_start, texture_len);
+
+			materials[next_material].texture_path = texture_path;
+
+			++next_material;
 		}
 
 		if (!string_read_line(&file_iter))
@@ -502,42 +582,44 @@ void read_material_lib(const char* path, Texture** out_textures, uint32* out_tex
 	delete[] file.data;
 }
 
-Model model_obj(const uint8* obj_file, uint64 file_size, const char* containing_folder)
+Model model_obj(const char* obj_file, const char* containing_folder)
 {
 	uint32 vertex_count = 0;
 	uint32 texcoord_count = 0;
 	uint32 normal_count = 0;
 	uint32 triangle_count = 0;
+	Material* materials = 0;
+	uint32 material_count = 0;
 
-	uint64 read_pos = 0;
-	while (read_pos < file_size)
+	const char* file_iter = obj_file;
+	while (true)
 	{
-		if (obj_file[read_pos] == 'v') 
+		if (*file_iter == 'v')
 		{
-			if (obj_file[read_pos + 1] == ' ')
+			if (file_iter[1] == ' ')
 			{
 				++vertex_count;
 			}
-			else if (obj_file[read_pos + 1] == 't')
+			else if (file_iter[1] == 't')
 			{
 				++texcoord_count;
 			}
-			else if (obj_file[read_pos + 1] == 'n')
+			else if (file_iter[1] == 'n')
 			{
 				++normal_count;
 			}
 		}
-		else if (obj_file[read_pos] == 'f')
+		else if (*file_iter == 'f')
 		{
 			++triangle_count;
 		}
-		else if (string_starts_with((const char*)& obj_file[read_pos], "mtllib"))
+		else if (string_starts_with(file_iter, "mtllib"))
 		{
 			char material_lib_path[512];
 			int32 len = string_copy(material_lib_path, sizeof(material_lib_path), containing_folder);
 			len += string_copy(material_lib_path + len, sizeof(material_lib_path) - len, "/");
 			
-			const uint8* iter = obj_file + read_pos + 7;
+			const char* iter = file_iter + 7;
 			while (!char_is_whitespace(*iter))
 			{
 				material_lib_path[len] = *iter;
@@ -547,14 +629,13 @@ Model model_obj(const uint8* obj_file, uint64 file_size, const char* containing_
 			}
 			material_lib_path[len] = 0;
 
-			materials = read_material_lib(material_lib_path);
+			read_material_lib(material_lib_path, &materials, &material_count);
 		}
 
-		while (read_pos < file_size && obj_file[read_pos] != '\n')
+		if (!string_read_line(&file_iter))
 		{
-			++read_pos;
+			break;
 		}
-		++read_pos;
 	}
 
 	Vec_3f* vertices = new Vec_3f[vertex_count];
@@ -571,46 +652,45 @@ Model model_obj(const uint8* obj_file, uint64 file_size, const char* containing_
 	uint32 unique_vertex_count = 0;
 	uint32 next_triangle = 0;
 	
-	read_pos = 0;
-	while (read_pos < file_size)
+	file_iter = obj_file;
+	while (true)
 	{
-		if (obj_file[read_pos] == 'v')
+		if (*file_iter == 'v')
 		{
-			if (obj_file[read_pos + 1] == ' ')
+			if (file_iter[1] == ' ')
 			{
-				read_pos += 2;
+				file_iter += 2;
 
-				obj_read_floats(obj_file + read_pos, vertices[next_vertex].v, 3);
+				obj_read_floats(file_iter, vertices[next_vertex].v, 3);
 				++next_vertex;
 			}
-			else if (obj_file[read_pos + 1] == 't')
+			else if (file_iter[1] == 't')
 			{
-				read_pos += 3;
+				file_iter += 3;
 
-				obj_read_floats(obj_file + read_pos, texcoords[next_texcoord].v, 2);
+				obj_read_floats(file_iter, texcoords[next_texcoord].v, 2);
 				++next_texcoord;
 			}
-			else if (obj_file[read_pos + 1] == 'n')
+			else if (file_iter[1] == 'n')
 			{
-				read_pos += 3;
+				file_iter += 3;
 
-				obj_read_floats(obj_file + read_pos, normals[next_normal].v, 3);
+				obj_read_floats(file_iter, normals[next_normal].v, 3);
 				++next_normal;
 			}
 		}
-		else if (obj_file[read_pos] == 'f')
+		else if (*file_iter == 'f')
 		{
-			read_pos += 2;
+			file_iter += 2;
 
-			obj_read_triangle(obj_file + read_pos, unique_vertices, &unique_vertex_count, &model.triangles[next_triangle]);
+			obj_read_triangle(file_iter, unique_vertices, &unique_vertex_count, &model.triangles[next_triangle]);
 			next_triangle += 3;
 		}
 
-		while (read_pos < file_size && obj_file[read_pos] != '\n')
+		if (!string_read_line(&file_iter))
 		{
-			++read_pos;
+			break;
 		}
-		++read_pos;
 	}
 
 	model.vertex_count = unique_vertex_count;
@@ -688,7 +768,7 @@ int WinMain(
 	ShowWindow(window, show_cmd);
 
 	File obj_file = read_file("data/models/column.obj");
-	Model column_model = model_obj(obj_file.data, obj_file.size, "data/models");
+	Model column_model = model_obj((const char*)obj_file.data, "data/models");
 	delete[] obj_file.data;
 	obj_file = {};
 	Vec_3f* projected_vertices = new Vec_3f[column_model.vertex_count];
