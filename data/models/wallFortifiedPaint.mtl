@@ -2,13 +2,13 @@
 
 newmtl planks
 Kd 1 1 1
-map_Kd Textures/planks.png
+map_Kd Textures/planks.bmp
 
 newmtl stonesPainted
 Kd 1 1 1
-map_Kd Textures/stonesPainted.png
+map_Kd Textures/stonesPainted.bmp
 
 newmtl bricks
 Kd 1 1 1
-map_Kd Textures/bricks.png
+map_Kd Textures/bricks.bmp
 

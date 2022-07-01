@@ -2,5 +2,5 @@
 
 newmtl stones
 Kd 1 1 1
-map_Kd Textures/stones.png
+map_Kd Textures/stones.bmp
 

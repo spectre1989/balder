@@ -2,9 +2,9 @@
 
 newmtl stones
 Kd 1 1 1
-map_Kd Textures/stones.png
+map_Kd Textures/stones.bmp
 
 newmtl bricks
 Kd 1 1 1
-map_Kd Textures/bricks.png
+map_Kd Textures/bricks.bmp
 
