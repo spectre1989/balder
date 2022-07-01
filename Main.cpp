@@ -350,6 +350,25 @@ int32 string_copy(char* dst, int32 dst_size, const char* src)
 	return dst_iter - dst;
 }
 
+int32 string_len(const char* str)
+{
+	const char* iter = str;
+	while (*iter)
+	{
+		++iter;
+	}
+
+	return iter - str;
+}
+
+char* string_copy(const char* src)
+{
+	const int32 len = string_len(src);
+	char* dst = new char[len + 1];
+	string_copy(dst, len + 1, src);
+	return dst;
+}
+
 bool char_is_whitespace(char c)
 {
 	return c == ' ' || c == '\r' || c == '\n';
@@ -440,6 +459,7 @@ static const char* obj_read_triangle_vertex(const char* data, int32 out_vertex[3
 	while (current_vertex < 3)
 	{
 		out_vertex[current_vertex] = out_vertex[current_vertex - 1];
+		++current_vertex;
 	}
 
 	// return the start of the next triangle
@@ -509,11 +529,78 @@ void string_copy_substring(char* dst, const char* src, uint32 count)
 	*dst = 0;
 }
 
+bool string_equals(const char* a, const char* b)
+{
+	while (true)
+	{
+		if (*a != *b)
+		{
+			return false;
+		}
+
+		if (!*a)
+		{
+			return true;
+		}
+
+		++a;
+		++b;
+	}
+}
+
+struct Texture_DB
+{
+	const char* path;
+	Texture texture;
+	Texture_DB* next;
+};
+
+const Texture* texture_db_get(Texture_DB* db, const char* path)
+{
+	Texture_DB* iter = db;
+	while (iter->next)
+	{
+		if (string_equals(iter->next->path, path))
+		{
+			return &iter->next->texture;
+		}
+		iter = iter->next;
+	}
+
+	// not found so load and append
+	File file = read_file(path);
+
+	Texture_DB* new_entry = new Texture_DB;
+	new_entry->path = string_copy(path);
+	new_entry->texture = texture_bmp(file.data);
+	new_entry->next = 0;
+	iter->next = new_entry;
+
+	delete[] file.data;
+
+	return &new_entry->texture;
+}
+
 struct Material
 {
 	const char* name;
 	const char* texture_path;
 };
+
+const char* obj_file_read_word(const char* start)
+{
+	const char* end = start;
+	while (!char_is_whitespace(*end))
+	{
+		++end;
+	}
+
+	const uint32 len = end - start;
+	char* str = new char[len + 1];
+	string_copy_substring(str, start, len);
+
+	return str;
+}
 
 void read_material_lib(const char* path, Material** out_materials, uint32* out_material_count)
 {
@@ -542,39 +629,17 @@ void read_material_lib(const char* path, Material** out_materials, uint32* out_m
 	{
 		if (string_starts_with(file_iter, "newmtl"))
 		{
-			const char* name_start = file_iter + 7;
-			const char* name_end = name_start;
-			while (!char_is_whitespace(*name_end))
-			{
-				++name_end;
-			}
-			
-			const uint32 name_len = name_end - name_start;
-			char* name = new char[name_len + 1];
-			string_copy_substring(name, name_start, name_len);
-
-			materials[next_material].name = name;
+			materials[next_material].name = obj_file_read_word(file_iter + 7);
 
 			// NOTE don't inc next_material yet, need to get texture path first!
 		}
 		else if (string_starts_with(file_iter, "map_Kd"))
 		{
-			const char* texture_start = file_iter + 7;
-			const char* texture_end = texture_start;
-			while (!char_is_whitespace(*texture_end))
-			{
-				++texture_end;
-			}
-
-			const uint32 texture_len = texture_end - texture_start;
-			char* texture_path = new char[texture_len + 1];
-			string_copy_substring(texture_path, texture_start, texture_len);
-
-			materials[next_material].texture_path = texture_path;
+			materials[next_material].texture_path = obj_file_read_word(file_iter + 7);
 
 			++next_material;
 		}
-
+		
 		if (!string_read_line(&file_iter, (const char*)(file.data + file.size)))
 		{
 			break;
@@ -582,9 +647,12 @@ void read_material_lib(const char* path, Material** out_materials, uint32* out_m
 	}
 
 	delete[] file.data;
+
+	*out_materials = materials;
+	*out_material_count = material_count;
 }
 
-Model model_obj(File obj_file, const char* containing_folder)
+Model model_obj(File obj_file, const char* containing_folder, Texture_DB* texture_db)
 {
 	uint32 vertex_count = 0;
 	uint32 texcoord_count = 0;
@@ -592,6 +660,7 @@ Model model_obj(File obj_file, const char* containing_folder)
 	uint32 triangle_count = 0;
 	Material* materials = 0;
 	uint32 material_count = 0;
+	uint32 draw_call_count = 0;
 
 	const char* file_iter = (const char*)obj_file.data;
 	while (true)
@@ -631,8 +700,11 @@ Model model_obj(File obj_file, const char* containing_folder)
 			}
 			material_lib_path[len] = 0;
 
-			// TODO delete[] materials
 			read_material_lib(material_lib_path, &materials, &material_count);
+		}
+		else if (string_starts_with(file_iter, "usemtl"))
+		{
+			++draw_call_count;
 		}
 
 		if (!string_read_line(&file_iter, (const char*)(obj_file.data + obj_file.size)))
@@ -648,12 +720,15 @@ Model model_obj(File obj_file, const char* containing_folder)
 
 	Model model = {};
 	model.triangles = new int32[triangle_count * 3];
+	model.draw_calls = new Draw_Call[draw_call_count];
+	model.draw_call_count = draw_call_count;
 
 	uint32 next_vertex = 0;
 	uint32 next_texcoord = 0;
 	uint32 next_normal = 0;
 	uint32 unique_vertex_count = 0;
 	uint32 next_triangle = 0;
+	uint32 next_draw_call = 0;
 	
 	file_iter = (const char*)obj_file.data;
 	while (true)
@@ -686,8 +761,37 @@ Model model_obj(File obj_file, const char* containing_folder)
 		{
 			file_iter += 2;
 
-			obj_read_triangle(file_iter, unique_vertices, &unique_vertex_count, &model.triangles[next_triangle]);
-			next_triangle += 3;
+			obj_read_triangle(file_iter, unique_vertices, &unique_vertex_count, &model.triangles[next_triangle * 3]);
+			++next_triangle;
+		}
+		else if (string_starts_with(file_iter, "usemtl"))
+		{
+			if (next_draw_call > 0)
+			{
+				Draw_Call* last_draw_call = &model.draw_calls[next_draw_call - 1];
+
+				last_draw_call->triangle_count = next_triangle - last_draw_call->triangle_start;
+			}
+			model.draw_calls[next_draw_call].triangle_start = next_triangle;
+
+			const char* material_name = obj_file_read_word(file_iter + 7);
+			for (int32 i = 0; i < material_count; ++i)
+			{
+				if (string_equals(materials[i].name, material_name))
+				{
+					char texture_path[512];
+					int32 texture_path_len = string_copy(texture_path, sizeof(texture_path), containing_folder);
+					texture_path_len += string_copy(texture_path + texture_path_len, sizeof(texture_path) - texture_path_len, "/");
+					texture_path_len += string_copy(texture_path + texture_path_len, sizeof(texture_path) - texture_path_len, materials[i].texture_path);
+
+					model.draw_calls[next_draw_call].texture = texture_db_get(texture_db, texture_path);
+					break;
+				}
+			}
+
+			delete[] material_name;
+
+			++next_draw_call;
 		}
 
 		if (!string_read_line(&file_iter, (const char*)(obj_file.data + obj_file.size)))
@@ -695,6 +799,9 @@ Model model_obj(File obj_file, const char* containing_folder)
 			break;
 		}
 	}
+
+	Draw_Call* last_draw_call = &model.draw_calls[next_draw_call - 1];
+	last_draw_call->triangle_count = next_triangle - last_draw_call->triangle_start;
 
 	model.vertex_count = unique_vertex_count;
 	model.vertices = new Vec_3f[unique_vertex_count];
@@ -712,6 +819,7 @@ Model model_obj(File obj_file, const char* containing_folder)
 	delete[] texcoords;
 	delete[] normals;
 	delete[] unique_vertices;
+	delete[] materials;
 
 	return model;
 }
@@ -770,21 +878,13 @@ int WinMain(
 
 	ShowWindow(window, show_cmd);
 
-	File obj_file = read_file("data/models/column.obj");
-	Model column_model = model_obj(obj_file, "data/models");
+	Texture_DB texture_db = {};
+
+	File obj_file = read_file("data/models/tower.obj");
+	Model column_model = model_obj(obj_file, "data/models", &texture_db);
 	delete[] obj_file.data;
 	obj_file = {};
 	Vec_3f* projected_vertices = new Vec_3f[column_model.vertex_count];
-
-	File texture_file = read_file("data/models/Textures/stones.bmp");
-	const Texture stones_texture = texture_bmp(texture_file.data);
-	delete[] texture_file.data;
-	texture_file = {};
-
-	texture_file = read_file("data/models/Textures/bricks.bmp");
-	const Texture bricks_texture = texture_bmp(texture_file.data);
-	delete[] texture_file.data;
-	texture_file = {};
 
 	LARGE_INTEGER clock_freq;
 	QueryPerformanceFrequency(&clock_freq);
@@ -868,11 +968,6 @@ int WinMain(
 				column_model.draw_calls,
 				column_model.draw_call_count,
 				&model_view_projection_matrix);
-
-			// second intersecting cube
-			/*matrix_4x4_transform(&model_matrix, {0.0f, 2.0f, 0.0f}, quat_angle_axis({0.0f, 0.0f, 1.0f}, now.QuadPart * 0.00000015f));
-			matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrix);
-			project_and_draw(vertices, colours, projected_vertices, 8, triangles, 12, &model_view_projection_matrix);*/
 
 			// TODO measure this, bitblt might be faster, also could draw this with directdraw or something if it takes up too much of the frame
 			SetDIBitsToDevice(
