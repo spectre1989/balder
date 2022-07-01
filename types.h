@@ -2,7 +2,6 @@
 
 #include <cstdint>
 
-#define assert(x) if(!(x)){int* p = 0; *p = 0;}
 
 typedef uint8_t uint8;
 typedef uint16_t uint16;

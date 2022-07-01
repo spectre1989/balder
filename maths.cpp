@@ -1,5 +1,8 @@
 #include "maths.h"
 
+#include "assert.h"
+
+
 Quat quat_euler(Vec_3f euler)
 {
 	Quat pitch = quat_angle_axis({ 1.0f, 0.0f, 0.0f }, euler.x);

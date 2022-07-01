@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core.h"
+#include "types.h"
 #include <cmath>
 
 constexpr float32 c_pi = 3.1415926535897932384626433f;
