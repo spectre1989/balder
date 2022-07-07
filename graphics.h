@@ -50,12 +50,15 @@ void graphics_draw_to_window(HWND window);
 
 void project_and_draw(
 	const Vec_3f* vertices,
+	const Vec_3f* normals,
 	const Vec_2f* texcoords,
 	Vec_3f* projected_vertices,
 	const int32 vertex_count,
 	const int32* triangles,
 	const Draw_Call* draw_calls,
 	uint32 draw_call_count,
-	const Matrix_4x4* projection_matrix);
+	Vec_4f light,
+	const Matrix_4x4* inverse_model_matrix,
+	const Matrix_4x4* model_view_projection_matrix);
 
 const Texture* texture_db_get(Texture_DB* db, const char* path);

@@ -53,7 +53,7 @@ char* string_copy(const char* src)
 
 bool char_is_whitespace(char c)
 {
-	return c == ' ' || c == '\r' || c == '\n';
+	return c == ' ' || c == '\r' || c == '\n' || c == '\t';
 }
 
 bool string_read_line(const char** str, const char* str_end)

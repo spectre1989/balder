@@ -163,9 +163,11 @@ static void draw_line(Vec_3f p1, Vec_3f p2) // TODO more efficient algo impl
 static void triangle_edge(
 	Vec_3f a, Vec_3f b,
 	Vec_2f a_tex, Vec_2f b_tex,
+	float32 a_light, float32 b_light,
 	int32* out_min_x, int32* out_max_x,
 	float32* out_min_depth, float32* out_max_depth,
-	Vec_2f* out_min_texcoord, Vec_2f* out_max_texcoord)
+	Vec_2f* out_min_texcoord, Vec_2f* out_max_texcoord,
+	float32* out_min_light, float32* out_max_light)
 {
 	const int32 x1 = int32(a.x);
 	const int32 y2 = int32(b.y);
@@ -216,6 +218,7 @@ static void triangle_edge(
 
 					out_min_depth[y] = float32_lerp(a.z, b.z, t);
 					out_min_texcoord[y] = vec_2f_lerp(a_tex, b_tex, t);
+					out_min_light[y] = float32_lerp(a_light, b_light, t);
 				}
 				if (x > out_max_x[y])
 				{
@@ -227,6 +230,7 @@ static void triangle_edge(
 
 					out_max_depth[y] = float32_lerp(a.z, b.z, t);
 					out_max_texcoord[y] = vec_2f_lerp(a_tex, b_tex, t);
+					out_max_light[y] = float32_lerp(a_light, b_light, t);
 				}
 			}
 
@@ -255,7 +259,7 @@ static float32 wrap_texcoord(float32 f)
 	return fmodf(f, 1.0f);
 }
 
-static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], const Texture* texture)
+static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], const float32 light[3], const Texture* texture)
 {
 	// High level algorithm is to plot the 3 lines describing the edges, use
 	// this to figure out per row (y) what the min/max x value is, and 
@@ -267,9 +271,11 @@ static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], co
 	static int32 min_x[c_frame_height];
 	static float32 min_depth[c_frame_height];
 	static Vec_2f min_texcoord[c_frame_height];
+	static float32 min_light[c_frame_height];
 	static int32 max_x[c_frame_height];
 	static float32 max_depth[c_frame_height];
 	static Vec_2f max_texcoord[c_frame_height];
+	static float32 max_light[c_frame_height];
 
 	const int32 y_min = int32_max(0, int32_min(int32_min(int32(position[0].y), int32(position[1].y)), int32(position[2].y)));
 	const int32 y_max = int32_min(c_frame_height - 1, int32_max(int32_max(int32(position[0].y), int32(position[1].y)), int32(position[2].y)));
@@ -281,9 +287,9 @@ static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], co
 		max_x[y] = -1;
 	}
 
-	triangle_edge(position[0], position[1], texcoord[0], texcoord[1], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord);
-	triangle_edge(position[1], position[2], texcoord[1], texcoord[2], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord);
-	triangle_edge(position[2], position[0], texcoord[2], texcoord[0], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord);
+	triangle_edge(position[0], position[1], texcoord[0], texcoord[1], light[0], light[1], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord, min_light, max_light);
+	triangle_edge(position[1], position[2], texcoord[1], texcoord[2], light[1], light[2], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord, min_light, max_light);
+	triangle_edge(position[2], position[0], texcoord[2], texcoord[0], light[2], light[0], min_x, max_x, min_depth, max_depth, min_texcoord, max_texcoord, min_light, max_light);
 
 	for (int32 y = int32_max(y_min, 0); y <= y_max; ++y)
 	{
@@ -298,6 +304,10 @@ static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], co
 			{
 				depth_buffer[offset] = depth;
 
+				constexpr float32 c_ambient = 0.4f;
+				const float32 lerped_light = float32_clamp(0.0f, 1.0f, float32_lerp(min_light[y], max_light[y], t));
+				const float32 final_light = float32_clamp(0.0f, 1.0f, lerped_light + c_ambient);
+
 				Vec_2f texcoord = vec_2f_lerp(min_texcoord[y], max_texcoord[y], t);
 				texcoord.x = wrap_texcoord(texcoord.x);
 				texcoord.y = wrap_texcoord(texcoord.y);
@@ -306,9 +316,9 @@ static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], co
 				const int32 tex_pixel_offset = ((tex_pixel_y * texture->width) + tex_pixel_x) * 3;
 
 				const int32 frame_offset = offset * 3;
-				frame[frame_offset] = texture->pixels[tex_pixel_offset];
-				frame[frame_offset + 1] = texture->pixels[tex_pixel_offset + 1];
-				frame[frame_offset + 2] = texture->pixels[tex_pixel_offset + 2];
+				frame[frame_offset] = texture->pixels[tex_pixel_offset] * final_light;
+				frame[frame_offset + 1] = texture->pixels[tex_pixel_offset + 1] * final_light;
+				frame[frame_offset + 2] = texture->pixels[tex_pixel_offset + 2] * final_light;
 			}
 		}
 	}
@@ -316,17 +326,20 @@ static void draw_triangle(const Vec_3f position[3], const Vec_2f texcoord[3], co
 
 void project_and_draw(
 	const Vec_3f* vertices,
+	const Vec_3f* normals,
 	const Vec_2f* texcoords,
 	Vec_3f* projected_vertices,
 	const int32 vertex_count,
 	const int32* triangles,
 	const Draw_Call* draw_calls,
 	uint32 draw_call_count,
-	const Matrix_4x4* projection_matrix)
+	Vec_4f light_in_world_space,
+	const Matrix_4x4* inverse_model_matrix,
+	const Matrix_4x4* model_view_projection_matrix)
 {
 	for (int i = 0; i < vertex_count; ++i)
 	{
-		Vec_4f projected3d = matrix_4x4_mul_vec4(projection_matrix, vertices[i]);
+		Vec_4f projected3d = matrix_4x4_mul_vec4(model_view_projection_matrix, vertices[i]);
 		projected3d.x /= projected3d.w;
 		projected3d.y /= projected3d.w;
 		projected3d.z /= projected3d.w;
@@ -337,26 +350,38 @@ void project_and_draw(
 		projected_vertices[i] = { projected3d.x, projected3d.y, projected3d.z };
 	}
 
+	const bool light_is_directional = light_in_world_space.w == 0.0f;
+	Vec_3f light_in_model_space = matrix_4x4_mul_direction(inverse_model_matrix, { light_in_world_space.x, light_in_world_space.y, light_in_world_space.z});
+
 	Vec_3f pos[3];
 	Vec_2f tex[3];
-	for (int draw_call_i = 0; draw_call_i < draw_call_count; ++draw_call_i)
+	float32 light[3];
+	for (int32 draw_call_i = 0; draw_call_i < draw_call_count; ++draw_call_i)
 	{
-		for (int i = 0; i < draw_calls[draw_call_i].triangle_count; ++i)
+		for (int32 triangle_i = 0; triangle_i < draw_calls[draw_call_i].triangle_count; ++triangle_i)
 		{
-			const int base = (draw_calls[draw_call_i].triangle_start + i) * 3;
+			const int32 base = (draw_calls[draw_call_i].triangle_start + triangle_i) * 3;
+			const int32 v0 = triangles[base];
+			const int32 v1 = triangles[base + 1];
+			const int32 v2 = triangles[base + 2];
 
-			pos[0] = projected_vertices[triangles[base]];
-			pos[1] = projected_vertices[triangles[base + 1]];
-			pos[2] = projected_vertices[triangles[base + 2]];
+			pos[0] = projected_vertices[v0];
+			pos[1] = projected_vertices[v1];
+			pos[2] = projected_vertices[v2];
 
-			tex[0] = texcoords[triangles[base]];
-			tex[1] = texcoords[triangles[base + 1]];
-			tex[2] = texcoords[triangles[base + 2]];
+			// TODO maybe move tex and light stuff into prior to draw_triangle, as it may be culled
+			tex[0] = texcoords[v0];
+			tex[1] = texcoords[v1];
+			tex[2] = texcoords[v2];
+
+			light[0] = -vec_3f_dot(normals[v0], light_in_model_space);
+			light[1] = -vec_3f_dot(normals[v1], light_in_model_space);
+			light[2] = -vec_3f_dot(normals[v2], light_in_model_space);
 
 			// TODO is it quicker to do this before projection by seeing if
 			// any of the vertices lie on the positive side of the planes
 			// defining the view frustum
-			for (int i = 0; i < 3; ++i)
+			for (int32 i = 0; i < 3; ++i)
 			{
 				// TODO depth based culling too
 				if (pos[i].x >= 0.0f && pos[i].x < c_frame_width &&
@@ -365,7 +390,7 @@ void project_and_draw(
 					// at least one vertex is visible
 					if (vec_3f_cross(vec_3f_sub(pos[0], pos[1]), vec_3f_sub(pos[0], pos[2])).z > 0.0f)
 					{
-						draw_triangle(pos, tex, draw_calls[draw_call_i].texture);
+						draw_triangle(pos, tex, light, draw_calls[draw_call_i].texture);
 					}
 
 					break;

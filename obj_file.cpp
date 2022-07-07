@@ -4,6 +4,26 @@
 #include "string.h"
 
 
+static bool obj_file_read_line(const char** iter, const char* end)
+{
+	if (string_read_line(iter, end))
+	{
+		const char* str = *iter;
+		while (char_is_whitespace(*str))
+		{
+			++str;
+			if (str == end)
+			{
+				return false;
+			}
+		}
+
+		*iter = str;
+		return true;
+	}
+
+	return false;
+}
 static void obj_read_floats(const char* data, float* out_floats, int32 float_count)
 {
 	for (int32 i = 0; i < float_count; ++i)
@@ -17,6 +37,10 @@ static void obj_read_floats(const char* data, float* out_floats, int32 float_cou
 			++data;
 		}
 
+		while (*data == ' ')
+		{
+			++data;
+		}
 		out_floats[i] = atof(data);
 	}
 }
@@ -25,24 +49,33 @@ static const char* obj_read_triangle_vertex(const char* data, int32 out_vertex[3
 {
 	const char* str = data;
 
-	out_vertex[0] = atoi(str);
-
-	// see if we have more explicit verts
-	int32 current_vertex = 1;
-	while (current_vertex < 3)
+	int32 current_vertex = 0;
+	bool stop = false;
+	while (!stop)
 	{
-		if (*str == ' ' || *str == '\n') {
-			break;
-		}
-		else if (*str == '/')
+		out_vertex[current_vertex] = atoi(str);
+		if (out_vertex[current_vertex] >= 100)
 		{
-			++str;
-			out_vertex[current_vertex] = atoi(str);
-			++current_vertex;
+			stop = false;
 		}
-		++str;
+		++current_vertex;
+
+		while (true)
+		{
+			if (*str == '\n' || *str == ' ')
+			{
+				++str;
+				stop = true;
+				break;
+			}
+			else if (*str == '/')
+			{
+				++str;
+				break;
+			}
+			++str;
+		}
 	}
-	++str;
 
 	// less than 3 specified so copy whatever the last one in the file was
 	while (current_vertex < 3)
@@ -61,6 +94,13 @@ static void obj_read_triangle(const char* data, int32* in_out_unique_vertices, u
 	for (int32 tri_vertex_i = 0; tri_vertex_i < 3; ++tri_vertex_i)
 	{
 		data = obj_read_triangle_vertex(data, vertex);
+		for (int32 i = 0; i < 3; ++i)
+		{
+			if (vertex[i] == 0)
+			{
+				assert(false);
+			}
+		}
 		triangle[tri_vertex_i] = -1;
 		for (int32 unique_vertex_i = 0; unique_vertex_i < *in_out_unique_vertex_count; ++unique_vertex_i)
 		{
@@ -120,7 +160,7 @@ void read_material_lib(const char* path, Material** out_materials, uint32* out_m
 			++material_count;
 		}
 
-		if (!string_read_line(&file_iter, (const char*)(file.data + file.size)))
+		if (!obj_file_read_line(&file_iter, (const char*)(file.data + file.size)))
 		{
 			break;
 		}
@@ -144,7 +184,7 @@ void read_material_lib(const char* path, Material** out_materials, uint32* out_m
 			++next_material;
 		}
 
-		if (!string_read_line(&file_iter, (const char*)(file.data + file.size)))
+		if (!obj_file_read_line(&file_iter, (const char*)(file.data + file.size)))
 		{
 			break;
 		}
@@ -211,7 +251,7 @@ Model model_obj(File obj_file, const char* containing_folder, Texture_DB* textur
 			++draw_call_count;
 		}
 
-		if (!string_read_line(&file_iter, (const char*)(obj_file.data + obj_file.size)))
+		if (!obj_file_read_line(&file_iter, (const char*)(obj_file.data + obj_file.size)))
 		{
 			break;
 		}
@@ -298,7 +338,7 @@ Model model_obj(File obj_file, const char* containing_folder, Texture_DB* textur
 			++next_draw_call;
 		}
 
-		if (!string_read_line(&file_iter, (const char*)(obj_file.data + obj_file.size)))
+		if (!obj_file_read_line(&file_iter, (const char*)(obj_file.data + obj_file.size)))
 		{
 			break;
 		}
