@@ -5,6 +5,7 @@
 #include "file.h"
 #include "graphics.h"
 #include "obj_file.h"
+#include "string.h"
 
 
 static void draw_cube(const Matrix_4x4* view_matrix, const Matrix_4x4* projection_matrix, LARGE_INTEGER now, const Texture* texture)
@@ -191,15 +192,61 @@ int WinMain(
 
 	Texture_DB texture_db = {};
 
-	//File obj_file = read_file("data/models/tower.obj");
-	//Model column_model = model_obj(obj_file, "data/models", &texture_db);
-	//File obj_file = read_file("data/models/genome_soldier/genome_soldier.obj");
-	//Model column_model = model_obj(obj_file, "data/models/genome_soldier", &texture_db);
-	File obj_file = read_file("data/models/snake/snake.obj");
-	Model column_model = model_obj(obj_file, "data/models/snake", &texture_db);
-	delete[] obj_file.data;
-	obj_file = {};
-	Vec_3f* projected_vertices = new Vec_3f[column_model.vertex_count];
+	struct Found_Model
+	{
+		char filename[MAX_PATH];
+		Found_Model* next;
+	};
+	Found_Model* found_models = nullptr;
+	int32 model_count = 0;
+
+	WIN32_FIND_DATAA find_data = {};
+	HANDLE find = FindFirstFileA("data/models/*", &find_data);
+	if (find != INVALID_HANDLE_VALUE) 
+	{
+		while (true) 
+		{
+			if (string_ends_with(find_data.cFileName, ".obj"))
+			{
+				Found_Model* found_model = new Found_Model();
+				string_copy(found_model->filename, MAX_PATH, "data/models/");
+				string_copy(found_model->filename + 12, MAX_PATH - 12, find_data.cFileName);
+				found_model->next = found_models;
+				found_models = found_model;
+				++model_count;
+			}
+
+			if (!FindNextFileA(find, &find_data))
+			{
+				break;
+			}
+		}
+
+		FindClose(find);
+	}
+
+	Model* models = new Model[model_count];
+	Matrix_4x4* model_matrices = new Matrix_4x4[model_count];
+	Matrix_4x4* inverse_model_matrices = new Matrix_4x4[model_count];
+	uint32 max_vertices = 0;
+	const Found_Model* current_model = found_models;
+	for (int32 i = 0; i < model_count; ++i)
+	{
+		File file = read_file(current_model->filename);
+		models[i] = model_obj(file, "data/models", &texture_db);
+		delete[] file.data;
+
+		max_vertices = uint32_max(max_vertices, models[i].vertex_count);
+
+		matrix_4x4_translation(model_matrices + i, {0.0f, i * 10.0f, 0.0f});
+		matrix_4x4_translation(inverse_model_matrices + i, {0.0f, -i * 10.0f, 0.0f});
+
+		const Found_Model* temp = current_model;
+		current_model = current_model->next;
+		delete temp;
+	}
+
+	Vec_3f* projected_vertices = new Vec_3f[max_vertices];
 
 	LARGE_INTEGER clock_freq;
 	QueryPerformanceFrequency(&clock_freq);
@@ -246,52 +293,34 @@ int WinMain(
 			Matrix_4x4 view_matrix;
 			matrix_4x4_camera(&view_matrix, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f });
 
+			Matrix_4x4 view_projection_matrix;
+			matrix_4x4_mul(&view_projection_matrix, &projection_matrix, &view_matrix);
+
 			// clear previous draw
 			graphics_clear();
 
 			//draw_cube(&view_matrix, &projection_matrix, now, &texture_db.next->texture);
 			
-			Matrix_4x4 model_matrix;
-			// snake model is lying down
-			const float pitch = c_pi * 0.5f;
-			const float yaw = now.QuadPart * 0.0000001f;
-			Quat pitch_quat = quat_angle_axis({ 1.0f, 0.0f, 0.0f }, pitch);
-			Quat yaw_quat = quat_angle_axis({ 0.0f, 0.0f, 1.0f }, yaw);
-			matrix_4x4_transform(&model_matrix, { 0.0f, 100.0f, -40.0f }, quat_mul(yaw_quat, pitch_quat));
+			const Vec_4f light = { -1.0f, 0.0f, 0.0f, 0.0f };
 
-			Matrix_4x4 inverse_model_translation_matrix;
-			matrix_4x4_translation(&inverse_model_translation_matrix, { 0.0f, -100.0f, 40.0f });
-			pitch_quat = quat_angle_axis({ 1.0f, 0.0f, 0.0f }, -pitch);
-			yaw_quat = quat_angle_axis({ 0.0f, 0.0f, 1.0f }, -yaw);
-			Matrix_4x4 inverse_model_rotation_matrix;
-			matrix_4x4_rotation(&inverse_model_rotation_matrix, quat_mul(pitch_quat, yaw_quat));
-			Matrix_4x4 inverse_model_matrix;
-			matrix_4x4_mul(&inverse_model_matrix, &inverse_model_rotation_matrix, &inverse_model_translation_matrix);
+			for (int32 i = 0; i < model_count; ++i)
+			{
+				Matrix_4x4 model_view_projection_matrix;
+				matrix_4x4_mul(&model_view_projection_matrix, &view_projection_matrix, &model_matrices[i]);
 
-			Vec_3f test = {10.0f, 20.0f, 30.0f};
-			Vec_3f test2 = matrix_4x4_mul(&model_matrix, test);
-			Vec_3f test3 = matrix_4x4_mul(&inverse_model_matrix, test2);
-
-			Matrix_4x4 model_view_matrix;
-			matrix_4x4_mul(&model_view_matrix, &view_matrix, &model_matrix);
-
-			Matrix_4x4 model_view_projection_matrix;
-			matrix_4x4_mul(&model_view_projection_matrix, &projection_matrix, &model_view_matrix);
-
-			Vec_4f light = {-1.0f, 0.0f, 0.0f, 0.0f};
-
-			project_and_draw(
-				column_model.vertices,
-				column_model.normals,
-				column_model.texcoords,
-				projected_vertices,
-				column_model.vertex_count,
-				column_model.triangles,
-				column_model.draw_calls,
-				column_model.draw_call_count,
-				light,
-				&inverse_model_matrix,
-				&model_view_projection_matrix);
+				project_and_draw(
+					models[i].vertices,
+					models[i].normals,
+					models[i].texcoords,
+					projected_vertices,
+					models[i].vertex_count,
+					models[i].triangles,
+					models[i].draw_calls,
+					models[i].draw_call_count,
+					light,
+					&inverse_model_matrices[i],
+					&model_view_projection_matrix);
+			}
 
 			graphics_draw_to_window(window);
 

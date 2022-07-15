@@ -4,6 +4,7 @@
 
 
 bool string_starts_with(const char* str, const char* search);
+bool string_ends_with(const char* str, const char* search);
 int32 string_copy(char* dst, int32 dst_size, const char* src);
 int32 string_len(const char* str);
 char* string_copy(const char* src);

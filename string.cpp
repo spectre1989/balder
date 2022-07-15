@@ -17,6 +17,44 @@ bool string_starts_with(const char* str, const char* search)
 	return true;
 }
 
+bool string_ends_with(const char* str, const char* search)
+{
+	const char* str_iter = str;
+	while (*str_iter) 
+	{
+		++str_iter;
+	}
+	const int32 str_len = str_iter - str;
+
+	const char* search_iter = search;
+	while (*search_iter)
+	{
+		++search_iter;
+	}
+	const int32 search_len = search_iter - search;
+
+	if (str_len < search_len)
+	{
+		return false;
+	}
+
+	while (true)
+	{
+		if (*str_iter != *search_iter)
+		{
+			return false;
+		}
+
+		if (search_iter == search)
+		{
+			return true;
+		}
+
+		--str_iter;
+		--search_iter;
+	}
+}
+
 int32 string_copy(char* dst, int32 dst_size, const char* src)
 {
 	char* dst_iter = dst;
