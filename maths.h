@@ -146,6 +146,11 @@ constexpr Vec_2f vec_2f_lerp(Vec_2f a, Vec_2f b, float32 t)
 	return { float32_lerp(a.x, b.x, t), float32_lerp(a.y, b.y, t) };
 }
 
+constexpr Vec_3f vec_3f_add(Vec_3f a, Vec_3f b)
+{
+	return { a.x + b.x, a.y + b.y, a.z + b.z };
+}
+
 constexpr Vec_3f vec_3f_sub(Vec_3f a, Vec_3f b)
 {
 	return {a.x - b.x, a.y - b.y, a.z - b.z};

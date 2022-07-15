@@ -136,6 +136,8 @@ static void draw_cube(const Matrix_4x4* view_matrix, const Matrix_4x4* projectio
 	project_and_draw(vertices, normals, texcoords, projected_vertices, 24, triangles, &draw_call, 1, light, &inverse_model_matrix, &model_view_projection_matrix);
 }
 
+static bool g_keys[256];
+
 LRESULT wnd_proc(
 	HWND window,
 	UINT msg,
@@ -146,6 +148,14 @@ LRESULT wnd_proc(
 	{
 	case WM_DESTROY:
 		PostQuitMessage(0);
+		return 0;
+
+	case WM_KEYDOWN:
+		g_keys[wparam] = true;
+		return 0;
+
+	case WM_KEYUP:
+		g_keys[wparam] = false;
 		return 0;
 
 	default:
@@ -238,8 +248,8 @@ int WinMain(
 
 		max_vertices = uint32_max(max_vertices, models[i].vertex_count);
 
-		matrix_4x4_translation(model_matrices + i, {0.0f, i * 10.0f, 0.0f});
-		matrix_4x4_translation(inverse_model_matrices + i, {0.0f, -i * 10.0f, 0.0f});
+		matrix_4x4_translation(model_matrices + i, {0.0f, i * 2.0f, 0.0f});
+		matrix_4x4_translation(inverse_model_matrices + i, {0.0f, -i * 2.0f, 0.0f});
 
 		const Found_Model* temp = current_model;
 		current_model = current_model->next;
@@ -247,6 +257,8 @@ int WinMain(
 	}
 
 	Vec_3f* projected_vertices = new Vec_3f[max_vertices];
+
+	Vec_3f camera_pos = {};
 
 	LARGE_INTEGER clock_freq;
 	QueryPerformanceFrequency(&clock_freq);
@@ -278,6 +290,27 @@ int WinMain(
 
 		if (dt >= c_frame_duration)
 		{
+			constexpr float32 c_camera_speed = 10.0f;
+			Vec_3f camera_movement = {};
+			if (g_keys['W'])
+			{
+				camera_movement.y += 1.0f;
+			}
+			if (g_keys['S'])
+			{
+				camera_movement.y -= 1.0f;
+			}
+			if (g_keys['D'])
+			{
+				camera_movement.x += 1.0f;
+			}
+			if (g_keys['A'])
+			{
+				camera_movement.x -= 1.0f;
+			}
+			camera_movement = vec_3f_mul(vec_3f_normalised(camera_movement), c_camera_speed * c_frame_duration_s);
+			camera_pos = vec_3f_add(camera_pos, camera_movement);
+
 			LARGE_INTEGER frame_start;
 			QueryPerformanceCounter(&frame_start);
 
@@ -291,7 +324,7 @@ int WinMain(
 			matrix_4x4_projection(&projection_matrix, c_fov_y, c_frame_width / (float32)c_frame_height, c_near, c_far);
 
 			Matrix_4x4 view_matrix;
-			matrix_4x4_camera(&view_matrix, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f });
+			matrix_4x4_camera(&view_matrix, camera_pos, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f });
 
 			Matrix_4x4 view_projection_matrix;
 			matrix_4x4_mul(&view_projection_matrix, &projection_matrix, &view_matrix);
